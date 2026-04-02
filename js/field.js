@@ -256,8 +256,7 @@ function renderField() {
   html += `<div class="field-container${fieldDrawMode ? ' draw-mode' : ''}${fieldZoneMode ? ' draw-mode' : ''}" id="fieldSvgContainer">`;
   html += buildFieldSVG(formInfo, layouts[fieldFormationIdx], hasGame ? plan : null, fieldPeriodIdx);
 
-  // HTML touch overlays — CSS touch-action works reliably on HTML elements
-  // (unlike SVG <g> elements where Chrome ignores touch-action on Android)
+  // HTML touch overlays for reliable drag on mobile
   if (!fieldDrawMode && !fieldZoneMode) {
     const positions = roster ? roster.positions : getStandalonePositions();
     const coords = layouts[fieldFormationIdx].coords;
@@ -904,52 +903,55 @@ function generatePlayId() {
 }
 
 function savePlayAsNew() {
-  const name = prompt('Play name:');
-  if (!name || !name.trim()) return;
+  showPromptModal({
+    title: 'Save Play',
+    placeholder: 'Play name',
+    confirmLabel: 'Save',
+    onConfirm: (trimmed) => {
+      const playsCtx = getPlaysCtx();
+      const routesCopy = fieldRoutes.length > 0 ? fieldRoutes.map(r => ({ points: r.points.map(p => [...p]) })) : undefined;
+      const defenseCopy = fieldDefenseOn && fieldDefenseMarkers.length > 0 ? fieldDefenseMarkers.map(d => ({ ...d })) : undefined;
+      const zonesCopy = fieldZones.length > 0 ? fieldZones.map(z => ({ points: z.points.map(p => [...p]), color: z.color })) : undefined;
 
-  const trimmed = name.trim();
-  const playsCtx = getPlaysCtx();
-  const routesCopy = fieldRoutes.length > 0 ? fieldRoutes.map(r => ({ points: r.points.map(p => [...p]) })) : undefined;
-  const defenseCopy = fieldDefenseOn && fieldDefenseMarkers.length > 0 ? fieldDefenseMarkers.map(d => ({ ...d })) : undefined;
-  const zonesCopy = fieldZones.length > 0 ? fieldZones.map(z => ({ points: z.points.map(p => [...p]), color: z.color })) : undefined;
-
-  // Check for case-insensitive duplicate
-  const existing = fieldPlays.find(p => p.name.toLowerCase() === trimmed.toLowerCase());
-  if (existing) {
-    showModal({
-      title: 'Overwrite Play',
-      message: `A play named "${existing.name}" already exists.\n\nOverwrite it?`,
-      confirmLabel: 'Overwrite',
-      onConfirm: () => {
-        existing.formation = fieldFormationIdx;
-        existing.positions = { ...fieldDotPositions };
-        existing.routes = routesCopy;
-        existing.defense = defenseCopy;
-        existing.zones = zonesCopy;
-        Storage.savePlays(playsCtx.teamSlug, playsCtx.seasonSlug, fieldPlays);
-        fieldActivePlayId = existing.id;
-        showToast('Overwritten: ' + existing.name, 'success');
-        renderField();
+      // Check for case-insensitive duplicate
+      const existing = fieldPlays.find(p => p.name.toLowerCase() === trimmed.toLowerCase());
+      if (existing) {
+        showModal({
+          title: 'Overwrite Play',
+          message: `A play named "${existing.name}" already exists.\n\nOverwrite it?`,
+          confirmLabel: 'Overwrite',
+          onConfirm: () => {
+            existing.formation = fieldFormationIdx;
+            existing.positions = { ...fieldDotPositions };
+            existing.routes = routesCopy;
+            existing.defense = defenseCopy;
+            existing.zones = zonesCopy;
+            Storage.savePlays(playsCtx.teamSlug, playsCtx.seasonSlug, fieldPlays);
+            fieldActivePlayId = existing.id;
+            showToast('Overwritten: ' + existing.name, 'success');
+            renderField();
+          }
+        });
+        return;
       }
-    });
-    return;
-  }
 
-  const play = {
-    id: generatePlayId(),
-    name: trimmed,
-    formation: fieldFormationIdx,
-    positions: { ...fieldDotPositions },
-    routes: routesCopy,
-    defense: defenseCopy,
-    zones: zonesCopy,
-  };
+      const play = {
+        id: generatePlayId(),
+        name: trimmed,
+        formation: fieldFormationIdx,
+        positions: { ...fieldDotPositions },
+        routes: routesCopy,
+        defense: defenseCopy,
+        zones: zonesCopy,
+      };
 
-  fieldPlays.push(play);
-  Storage.savePlays(playsCtx.teamSlug, playsCtx.seasonSlug, fieldPlays);
-  fieldActivePlayId = play.id;
-  showToast('Play saved: ' + play.name, 'success');
-  renderField();
+      fieldPlays.push(play);
+      Storage.savePlays(playsCtx.teamSlug, playsCtx.seasonSlug, fieldPlays);
+      fieldActivePlayId = play.id;
+      showToast('Play saved: ' + play.name, 'success');
+      renderField();
+    }
+  });
 }
 
 function overwriteActivePlay() {
@@ -1305,7 +1307,6 @@ function setupDefenseDrag() {
   const container = document.getElementById('fieldSvgContainer');
   if (!container) return;
 
-  // Attach drag handlers to HTML overlays (not SVG def-groups)
   const overlays = container.querySelectorAll('.def-overlay');
   overlays.forEach(overlay => {
     overlay.addEventListener('pointerdown', onDefOverlayPointerDown, { passive: false });
@@ -1325,9 +1326,7 @@ function onDefOverlayPointerDown(e) {
 
   overlay.setPointerCapture(e.pointerId);
 
-  // Find the SVG def-group for visual updates
   const svgGroup = svg.querySelector(`.def-group[data-def-idx="${idx}"]`);
-
   const state = { idx, overlay, svgGroup, pointerId: e.pointerId };
 
   const move = (me) => {
@@ -1342,7 +1341,6 @@ function onDefOverlayPointerDown(e) {
 
     fieldDefenseMarkers[idx] = { x: dx, y: dy };
 
-    // Update SVG visuals directly
     if (state.svgGroup) {
       const circle = state.svgGroup.querySelector('circle');
       if (circle) { circle.setAttribute('cx', dx); circle.setAttribute('cy', dy); }
@@ -1358,7 +1356,6 @@ function onDefOverlayPointerDown(e) {
       }
     }
 
-    // Update HTML overlay position
     overlay.style.left = (dx / 340 * 100) + '%';
     overlay.style.top = (dy / 480 * 100) + '%';
   };
@@ -1537,7 +1534,6 @@ function setupFieldDrag() {
   const container = document.getElementById('fieldSvgContainer');
   if (!container) return;
 
-  // Attach drag handlers to HTML overlays (not SVG dot-groups)
   const overlays = container.querySelectorAll('.dot-overlay');
   overlays.forEach(overlay => {
     overlay.addEventListener('pointerdown', onDotOverlayPointerDown, { passive: false });
@@ -1555,12 +1551,9 @@ function onDotOverlayPointerDown(e) {
   const svg = container.querySelector('svg');
   if (!svg) return;
 
-  // Capture pointer on the HTML overlay — browser respects touch-action: none
   overlay.setPointerCapture(e.pointerId);
 
-  // Find the SVG dot-group for visual updates
   const svgGroup = svg.querySelector(`.dot-group[data-pos="${pos}"]`);
-
   const state = { pos, overlay, svgGroup, pointerId: e.pointerId };
 
   const move = (me) => {
@@ -1575,7 +1568,6 @@ function onDotOverlayPointerDown(e) {
 
     fieldDotPositions[pos] = [dotCx, dotCy];
 
-    // Update SVG visuals directly for smooth dragging
     if (state.svgGroup) {
       const circles = state.svgGroup.querySelectorAll('circle');
       circles.forEach(c => { c.setAttribute('cx', dotCx); c.setAttribute('cy', dotCy); });
@@ -1584,7 +1576,6 @@ function onDotOverlayPointerDown(e) {
       if (texts[1]) { texts[1].setAttribute('x', dotCx); texts[1].setAttribute('y', dotCy + 16 + 13); }
     }
 
-    // Update HTML overlay position
     overlay.style.left = (dotCx / 340 * 100) + '%';
     overlay.style.top = (dotCy / 480 * 100) + '%';
   };

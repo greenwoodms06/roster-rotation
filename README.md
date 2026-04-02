@@ -4,6 +4,34 @@ Fair lineup rotations for youth sports. Generates balanced lineups that give eve
 
 **Live app:** [greenwoodms06.github.io/roster-rotation](https://greenwoodms06.github.io/roster-rotation/)
 
+
+
+<p align="center">
+  <img src="./media/walkthrough.gif" width="200" />
+</p>
+<p align="center">
+  <strong>Demonstration of roster roation workflow.</strong>
+</p>
+
+<table align="center" width="100%">
+  <tr>
+    <td align="center" width="16.6%"><sub>Roster</sub></td>
+    <td align="center" width="16.6%"><sub>Gameday</sub></td>
+    <td align="center" width="16.6%"><sub>Lineup</sub></td>
+    <td align="center" width="16.6%"><sub>Stats</sub></td>
+    <td align="center" width="16.6%"><sub>Field</sub></td>
+    <td align="center" width="16.6%"><sub>Field Custom</sub></td>
+  </tr>
+  <tr valign="top">
+    <td align="center"><img src="./media/roster.PNG" width="100%"></td>
+    <td align="center"><img src="./media/gameday.PNG" width="100%"></td>
+    <td align="center"><img src="./media/lineup.PNG" width="100%"></td>
+    <td align="center"><img src="./media/stats.PNG" width="100%"></td>
+    <td align="center"><img src="./media/field.PNG" width="100%"></td>
+    <td align="center"><img src="./media/field_custom.PNG" width="100%"></td>
+  </tr>
+</table>
+
 ## What It Does
 
 The rotation engine balances four things, in priority order:

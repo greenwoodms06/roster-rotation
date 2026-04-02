@@ -331,7 +331,7 @@ const TAB_HINTS = {
   roster: '\u2022 Tap <strong>+ Add</strong> to add players.<br>\u2022 Tap any player to set position preferences.',
   gameday: '\u2022 Set the date, format, and check who\u2019s available.<br>\u2022 Drag to reorder \u2014 first checked start (if enabled).<br>\u2022 Tap a name to lock a position.<br>\u2022 Then tap <strong>Generate Lineup</strong>.',
   lineup: '\u2022 Tap two players in the same period to <strong>swap</strong>.<br>\u2022 <strong>Edit</strong> in-game lineup availability and rebalance.<br>\u2022 Use <strong>+/\u2212</strong> to track goals.<br>\u2022 Check <strong>Scrimmage</strong> to exclude from season stats.',
-  season: '\u2022 Switch <strong>sub tabs</strong> to explore season stats.',
+  season: '\u2022 Select <strong>tabs</strong> to explore season stats.',
   field: '\u2022 Drag dots to arrange formations.<br>\u2022 Use the <strong>pencil</strong> and <strong>box</strong> to draw routes and zones.<br>\u2022 Toggle on/off player labels (<strong>Aa</strong>) and defense (<strong>DEF</strong>).<br>\u2022 Create and save plays for quick reuse.',
 };
 
@@ -2641,6 +2641,65 @@ function closeCustomModal() {
   document.getElementById('customModal')?.remove();
 }
 
+/**
+ * Custom prompt modal — replaces native prompt() with themed bottom-sheet.
+ * @param {Object} opts
+ * @param {string} opts.title - Modal heading
+ * @param {string} [opts.message] - Optional description text
+ * @param {string} [opts.placeholder] - Input placeholder
+ * @param {string} [opts.defaultValue] - Pre-filled input value
+ * @param {string} [opts.confirmLabel='Save'] - Confirm button text
+ * @param {Function} opts.onConfirm - Called with trimmed input value
+ */
+function showPromptModal({ title, message, placeholder = '', defaultValue = '', confirmLabel = 'Save', onConfirm }) {
+  closeCustomModal();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'customModal';
+
+  let messageHtml = message ? `<div class="modal-message">${esc(message)}</div>` : '';
+
+  overlay.innerHTML = `
+    <div class="modal" role="dialog" aria-labelledby="customModalTitle" aria-modal="true">
+      <h2 id="customModalTitle">${esc(title)}</h2>
+      ${messageHtml}
+      <div style="margin-bottom:16px">
+        <input type="text" id="promptModalInput" placeholder="${esc(placeholder)}" value="${esc(defaultValue)}" autocomplete="off">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" id="customModalCancel">Cancel</button>
+        <button class="btn btn-primary" id="customModalConfirm">${esc(confirmLabel)}</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const input = document.getElementById('promptModalInput');
+  const confirmBtn = document.getElementById('customModalConfirm');
+  const cancelBtn = document.getElementById('customModalCancel');
+
+  const doConfirm = () => {
+    const val = input.value.trim();
+    if (!val) return;
+    closeCustomModal();
+    if (onConfirm) onConfirm(val);
+  };
+
+  confirmBtn.addEventListener('click', doConfirm);
+  cancelBtn.addEventListener('click', () => closeCustomModal());
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); doConfirm(); }
+  });
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeCustomModal();
+  });
+
+  setTimeout(() => { input.focus(); input.select(); }, 50);
+}
+
 async function shareOrDownload(blob, filename, toastMsg) {
   // Use .txt extension for broader share sheet compatibility on Android
   // (more apps register to receive .txt than .json)
@@ -3306,10 +3365,6 @@ function applyUpdate() {
 }
 
 // -- Mobile Keyboard Fix -----------------------------------------------
-// On Android Chrome (default interactive-widget=resizes-visual), the on-screen
-// keyboard shrinks the visual viewport but NOT the layout viewport. Fixed-position
-// modals stay behind the keyboard. Fix: reposition the modal overlay to match
-// the visual viewport so flex-end alignment puts the modal above the keyboard.
 if (window.visualViewport) {
   const adjustForKeyboard = () => {
     const overlays = document.querySelectorAll('.modal-overlay:not(.hidden)');
@@ -3330,7 +3385,6 @@ if (window.visualViewport) {
       }
     });
 
-    // Scroll focused input into view within the modal
     if (keyboardOpen) {
       const focused = document.activeElement;
       if (focused && focused.closest('.modal')) {
