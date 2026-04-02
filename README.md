@@ -106,19 +106,6 @@ All data lives in your device's local storage. Nothing is sent to any server. Ex
 
 Pure vanilla HTML/CSS/JS. No build step, no dependencies, no npm. Files load via `<script>` tags. The service worker caches everything for offline use.
 
-```
-index.html              ← PWA app shell
-js/app.js               ← Main UI logic
-js/engine.js            ← Rotation algorithm
-js/formations.js        ← Sport/format definitions
-js/storage.js           ← localStorage data layer
-js/field.js             ← Field tab rendering
-css/styles.css          ← All styles
-sw.js                   ← Service worker
-tests/run_all.mjs       ← Test runner (908 assertions)
-docs/                   ← Design docs and roadmap
-```
-
 **Run tests:**
 
 ```bash

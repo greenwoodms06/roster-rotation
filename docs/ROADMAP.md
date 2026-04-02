@@ -149,6 +149,7 @@
 
 ### UI / UX
 - [x] Light theme option
+- [ ] Method for providing standarized/anonymized feedback.
 
 ### Data & Backup
 - [ ] Cloud backup: Google Drive provider (OAuth + appDataFolder)
