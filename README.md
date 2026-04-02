@@ -96,7 +96,7 @@ The app automatically checks for updates. When a new version is available, a ban
 
 ## Donations
 
-Tap the **♥ Donate** button in the header for PayPal or Venmo links.
+If you find this app useful you can consider donating in app via the **❤️ Donate** button or the PayPal or Venmo links at this top of th [README.md](./README.md). Many thanks in advance! 🙏 
 
 ## Privacy
 
