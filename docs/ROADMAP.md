@@ -142,19 +142,13 @@
 ## Future Ideas (Unprioritized)
 
 ### Algorithm & Constraints
-- [ ] Platoon / rotation groups: Group A plays Q1+Q3, Group B plays Q2+Q4
 - [ ] Buddy system: always-together or never-together player pairs
 - [ ] Zone continuity: keep players in the same zone across periods
-- [ ] "What-if" mode: generate multiple plans and compare fairness metrics
 - [ ] Fatigue awareness: prefer not to play a player consecutive periods if subs are available
-- [ ] Quick re-roll: add small random perturbation to cost function for alternative valid plans
+- [ ] Quick re-roll: add small random perturbation to cost function for alternative valid plans. Perhaps should just be the default behavior (hidden to the user)
 
 ### UI / UX
-- [ ] Undo last generation
-- [ ] Bench-in/bench-out diff on lineup view (show who's coming on/off between periods)
 - [x] Light theme option
-- [ ] Haptic feedback on generate
-- [ ] Desktop layout for pre-game planning on a laptop
 
 ### Data & Backup
 - [ ] Cloud backup: Google Drive provider (OAuth + appDataFolder)
@@ -166,8 +160,9 @@
 - [x] Fairness score per game (how balanced was it?)
 - [x] Season-level charts (bar chart of playing time distribution)
 - [x] Position heat map per player across the season
-- [ ] Export season report as PDF
+- [ ] Export season report as PDF. 
+- [ ] Export lineup as a standard roster card format (may differ per sport). Allow exporting all games or select games
 
 ### Platform
 - [ ] Playwright browser integration tests (Python)
-- [ ] iOS testing and any Safari-specific PWA fixes
+- [ ] iOS testing and any non-Chrome browser/Android/Pixel PWA fixes

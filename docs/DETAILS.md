@@ -19,12 +19,13 @@ On top of the core fairness algorithm, the coach can apply optional constraints 
 - **Position pins** -- lock a player to a specific position for this game. Tap a player's name in the available list, pick a position. That player plays that position every period they're on the field. A hint and pin summary is always visible under the Available Players header. Use case: "Alex is our GK today."
 - **Position stickiness** -- reduce position changes between periods (Off / Medium / High). Use case: "Stop moving kids every 8 minutes, let them settle in."
 - **Special position max** -- cap how many periods any player can play the first position (GK, G, etc.). Use case: "No kid plays goalkeeper more than once." Only appears for sports with a designated special position (soccer, hockey, lacrosse).
+- **Global max periods per player** -- cap how many total periods any player can play, regardless of position. Use case: "No player plays more than 3 of 4 quarters." Works with any sport.
 
-All constraints default to off. When off, behavior is identical to the original algorithm. Post-generation tap-to-swap is always available for manual adjustments.
+All constraints default to off (or to the values set in Settings). When off, behavior is identical to the original algorithm. Post-generation tap-to-swap is always available for manual adjustments.
 
 ### Field Tab & Play Diagramming
 
-The **Field** tab shows a top-down SVG diagram of the field with draggable player dots. It works in three contexts:
+The **Field** tab shows a top-down SVG diagram of the field with draggable player dots. The field supports scrolling and pinch zoom on mobile -- swipe on the background to scroll, pinch to zoom, drag dots to reposition. It works in three contexts:
 
 - **Standalone mode** (no team selected) -- the full interactive field is available immediately. A sport/format selector lets you pick any sport and format. Custom sport offers +/- buttons to add or remove positions (P1, P2, ...) and a field background selector (soccer, basketball, hockey, etc.). Plays saved in standalone mode persist separately from team data.
 - **Template mode** (team selected, no game plan) -- shows position labels on dots with the team's formation selector.
@@ -34,8 +35,11 @@ Play diagramming features (available in all modes):
 
 - **Saved plays** -- drag dots into position, then save as a named play via the + menu. Load any saved play from the dropdown to restore positions instantly. Plays are per-team, per-season (or per-standalone bucket).
 - **Route drawing** -- toggle draw mode (pencil icon), then drag your finger across the field to draw movement paths. Routes render as smooth curves with arrowheads. Tap a route to select it, then delete it individually. Undo and clear-all are available.
+- **Zone drawing** -- toggle zone mode (square icon) to draw freehand shapes on the field. Four colors available (blue, red, yellow, green). Zones render as semi-transparent filled shapes. Tap a zone to select and delete. Zones layer above the field background but below routes and dots.
 - **Defense overlay** -- toggle DEF to show draggable opponent X markers (red). Add or remove markers as needed. Defense positions save with plays.
 - **Formations** -- switch between sport-specific formations (e.g., 2-3-1, 3-2-1 for soccer 7v7). Each sport has a detailed SVG field background.
+
+All diagramming elements (dot positions, routes, zones, defense markers) persist when saving a play and are included in backup exports.
 
 ## Setup
 
@@ -52,15 +56,29 @@ The Field tab works immediately with no setup. Open the app and switch to the Fi
 1. Open the app - Game Day tab
 2. Set the format (4 quarters, 3 periods, or 2 halves)
 3. Check who's available, drag the grip handle to reorder for starters
-4. Optionally expand Constraints to set pins, stickiness, or GK max
+4. Optionally expand Constraints to set pins, stickiness, position max, or global max periods
 5. Tap **Generate Lineup**
-6. Use the **Lineup** tab on the sideline -- tap any two players in the same period to swap them
-7. Optionally add a game label (e.g. "vs. Lincoln FC") on the Lineup tab
+6. Use the **Lineup** tab on the sideline (see In-Game Features below)
 
 ### After the Game
-1. Add game notes on the Lineup tab (visible at the top)
-2. Check the **Season** tab for fairness charts and position distribution
-3. To back up or share: tap **⋮** in the header → **Export → Current Team**
+1. Check the **Season** tab for fairness charts, position distribution, and W-L-D record
+2. To back up or share: tap **⋮** in the header → Back Up or Share Team
+
+## In-Game Features
+
+The **Lineup** tab is designed for sideline use during a game:
+
+- **Tap-to-swap** -- tap any two players in the same period to swap their positions (field-to-field or field-to-bench). Swaps show a pulse animation and descriptive toast.
+- **Goal tracking** -- use the +/- buttons on each player row to track who scored. Opponent goals are tracked per period in the score header. The running score is displayed at the top of each period card.
+- **Scrimmage toggle** -- check "Scrimmage" to mark a game as an exhibition. Scrimmage games are excluded from season stats (W-L-D record, playing time fairness).
+- **Game label** -- add an optional label (e.g. "vs. Lincoln FC") that appears in game history and share text.
+- **Game notes** -- a text area at the top of the Lineup tab for freeform notes. Auto-saves on every keystroke. Notes are preserved when re-generating and included in share text.
+- **Edit Roster (late arrival / early departure)** -- tap the Edit button to add a player who showed up late or remove a player who left early. The engine rebalances all remaining periods fairly, freezing periods already played.
+- **Rebalance** -- tap the ↺ icon on any period card (period 2+) to re-optimize from that point forward. Useful after manual swaps to restore fairness across remaining periods. Warns if goal data exists in periods that will be regenerated.
+
+### Multiple Games Per Day
+
+If you generate a lineup for a date that already has a game, a prompt offers three options: Add (creates Game 2, Game 3, etc.), Replace (overwrites the last game), or Cancel. Each game on the same date gets its own game ID and appears separately in season history.
 
 ## Multi-Team & Multi-Season
 
@@ -91,11 +109,11 @@ The engine works with any period count. Labels adapt throughout the app (lineup 
 All data lives on your device. Use the **⋮** menu in the header:
 
 ### Backup & Restore
-- **Back Up** -- saves a complete snapshot of all teams, seasons, rosters, games, plays, and standalone field plays. Choose "Save to File" (cloud backup coming soon).
+- **Back Up** -- saves a complete snapshot of all teams, seasons, rosters, games, plays, and standalone field plays.
 - **Restore** -- loads a backup file. Shows a preview of what's in the backup (teams, seasons, date). If you have existing data, a safety backup is auto-downloaded before replacing everything. Settings (theme, defaults) are preserved.
 
 ### Sharing Teams
-- **Share Team** -- pick any team from the list and download it as a JSON file to send to an assistant coach or parent
+- **Share Team** -- pick any team from the list and export it as a file to send to an assistant coach or parent
 - **Import Team** -- loads a shared team file. If the team already exists on your device, you're prompted to replace it. If it's new, it's added. Other teams are not affected
 
 ## Settings
@@ -103,8 +121,11 @@ All data lives on your device. Use the **⋮** menu in the header:
 Tap **⋮ → Settings** to customize the app:
 
 - **Theme** -- Dark, Light, or System (follows your phone's setting)
+- **Default sport & format** -- set your preferred sport and format so season creation starts with the right preset
 - **Default period format** -- set your preferred format so Game Day starts with the right one
 - **Default starter mode** -- toggle whether "first N = starters" is on by default
+- **Default position stickiness** -- Off / Medium / High, applied to each new game
+- **Default max periods per player** -- No Limit or a specific cap, applied to each new game
 - **Hints** -- show or dismiss all first-use tip banners
 
 ## Repo Structure
@@ -113,7 +134,7 @@ Tap **⋮ → Settings** to customize the app:
 roster-rotation/
 |-- index.html              <- PWA app (GitHub Pages serves this)
 |-- manifest.json           <- PWA manifest (icons, TWA-ready fields)
-|-- sw.js                   <- Service worker (offline support)
+|-- sw.js                   <- Service worker (offline support + update detection)
 |-- privacy.html            <- Privacy policy (required for Play Store)
 |-- _config.yml             <- GitHub Pages config (serves .well-known)
 |-- js/
@@ -129,19 +150,18 @@ roster-rotation/
 |   \-- icon-512.png        <- PWA icon 512x512
 |-- tests/
 |   |-- run_all.mjs         <- Test runner (runs all suites)
-|   |-- helpers.mjs          <- Test harness, assert helpers, localStorage mock
+|   |-- helpers.mjs         <- Test harness, assert helpers, localStorage mock
 |   |-- test_engine.mjs     <- Engine algorithm tests
 |   |-- test_formations.mjs <- SPORTS, presets, formations tests
 |   |-- test_storage.mjs    <- Storage layer CRUD tests
 |   \-- test_app_logic.mjs  <- App-level logic tests
 |-- docs/
+|   |-- DETAILS.md          <- This file (user guide + project reference)
 |   |-- DESIGN_DECISIONS.md <- Architecture and technical decisions
-|   |-- CONSTRAINT_DESIGN.md <- Constraint system design
-|   |-- STRATEGY_INVESTIGATION.md <- Positional play vs fair rotation analysis
-|   |-- APP_STORE_GUIDE.md  <- Play Store distribution via TWA (legacy reference)
+|   |-- ROADMAP.md          <- Development roadmap
 |   |-- DISTRIBUTION_STRATEGY.md <- Platform, monetization, cloud backup strategy
-|   |-- GAME_DAY_ENHANCEMENTS.md <- Goal tracking, sub-tabs, game navigation design
-|   \-- ROADMAP.md          <- Development roadmap
+|   |-- STRATEGY_INVESTIGATION.md <- Positional play vs fair rotation analysis
+|   \-- SESSION_HANDOFF.md  <- Current session state for continuity
 |-- .well-known/
 |   \-- assetlinks.json     <- Digital Asset Links template (TWA)
 \-- README.md
@@ -195,22 +215,23 @@ All data lives on your device in localStorage. Exported files include real playe
 ## Installing on Your Phone
 
 1. Open the GitHub Pages URL in Chrome
-2. Tap the menu - **Add to Home Screen** (or **Install app**)
+2. Tap the menu → **Add to Home Screen** (or **Install app**)
 3. It appears as a standalone app with offline support
+4. When updates are available, the app shows a banner prompting you to back up data first, then tap Update
 
 ## Testing
 
 Tests run with Node.js (18+), no dependencies:
 
 ```bash
-node tests/run_all.mjs          # Run all suites (755 assertions)
+node tests/run_all.mjs          # Run all suites (908 assertions)
 ```
 
 Individual suites can be imported directly, but `run_all.mjs` is the standard entry point. Test coverage:
 
 | Suite | Assertions | Coverage |
 |-------|------------|---------|
-| Engine | 65 | Generation, equal time, exact fit, exclusions, starters, locks, lock validation, specialPosMax, continuity, season deficit, halves, 5v5, getPlayerSummary |
+| Engine | 218 | Generation, equal time, exact fit, exclusions, starters, locks, lock validation, specialPosMax, continuity, globalMaxPeriods, season deficit, halves, 5v5, getPlayerSummary, rebalanceFromPeriod, firstAvailableStart edge cases |
 | Formations | 550 | All sports/formats, preset derivation, icons, preset key roundtrip, position matching, formation layout validation (coord counts, value ranges), auto-layout |
 | Storage | 114 | Team/season/roster/game/plays CRUD, game sorting, season stats, cascade delete, v3 export format, clearAll, importBackup, importSharedTeam, roundtrip tests, context persistence, settings preservation |
 | App Logic | 26 | Period labels, getSpecialPosition, weight constants, v3 format detection, fairness spread, game number labels |
