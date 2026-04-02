@@ -10,7 +10,7 @@ Fair lineup rotations for youth sports. Generates balanced lineups that give eve
   <img src="./media/walkthrough.gif" width="200" />
 </p>
 <p align="center">
-  <strong>Demonstration of roster roation workflow.</strong>
+  <strong>Roster rotation workflow.</strong>
 </p>
 
 <table align="center" width="100%">
@@ -18,14 +18,19 @@ Fair lineup rotations for youth sports. Generates balanced lineups that give eve
     <td align="center" width="16.6%"><sub>Roster</sub></td>
     <td align="center" width="16.6%"><sub>Gameday</sub></td>
     <td align="center" width="16.6%"><sub>Lineup</sub></td>
-    <td align="center" width="16.6%"><sub>Stats</sub></td>
-    <td align="center" width="16.6%"><sub>Field</sub></td>
-    <td align="center" width="16.6%"><sub>Field Custom</sub></td>
   </tr>
   <tr valign="top">
     <td align="center"><img src="./media/roster.PNG" width="100%"></td>
     <td align="center"><img src="./media/gameday.PNG" width="100%"></td>
     <td align="center"><img src="./media/lineup.PNG" width="100%"></td>
+  </tr>
+
+  <tr>
+    <td align="center" width="16.6%"><sub>Stats</sub></td>
+    <td align="center" width="16.6%"><sub>Field</sub></td>
+    <td align="center" width="16.6%"><sub>Field Custom</sub></td>
+  </tr>
+  <tr valign="top">
     <td align="center"><img src="./media/stats.PNG" width="100%"></td>
     <td align="center"><img src="./media/field.PNG" width="100%"></td>
     <td align="center"><img src="./media/field_custom.PNG" width="100%"></td>
