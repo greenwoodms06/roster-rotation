@@ -1,9 +1,11 @@
+[![PayPal](https://img.shields.io/badge/PayPal-Donate-blue?logo=paypal)](https://paypal.me/scottg06)
+[![Venmo](https://img.shields.io/badge/Venmo-Support-3D95CE?logo=venmo)](https://venmo.com/Scott-Greenwood-06)
+
 # Roster Rotation Manager
 
 Fair lineup rotations for youth sports. Generates balanced lineups that give every kid equal playing time, track goals and scores, and show season-long fairness stats. Works offline on your phone.
 
 **Live app:** [greenwoodms06.github.io/roster-rotation](https://greenwoodms06.github.io/roster-rotation/)
-
 
 
 <p align="center">
