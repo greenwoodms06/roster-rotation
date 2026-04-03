@@ -581,3 +581,42 @@ suite('Engine — 9 players firstAvailableStart non-starter gets extra period');
   assert((counts['p08'] || 0) <= 3, `non-starter p08 plays at most 3 (got ${counts['p08'] || 0})`);
   assert((counts['p09'] || 0) <= 3, `non-starter p09 plays at most 3 (got ${counts['p09'] || 0})`);
 }
+
+suite('Engine — jitter produces varied but fair plans');
+{
+  const roster = makeRoster(10, ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST']);
+  run(ctx, `globalThis._roster = ${JSON.stringify(roster)};`);
+
+  // Generate multiple plans and check that:
+  // 1. All plans are structurally valid (fairness holds)
+  // 2. Not all plans are identical (jitter introduces variety)
+  const plans = [];
+  for (let trial = 0; trial < 5; trial++) {
+    run(ctx, `
+      globalThis._engine = new RotationEngine(globalThis._roster, {});
+      globalThis._plan = globalThis._engine.generateGamePlan('2026-03-25', ${JSON.stringify(pids(10))}, 4, false);
+    `);
+    const plan = run(ctx, 'globalThis._plan');
+    plans.push(plan);
+
+    // Verify fairness invariant holds for each plan
+    const summary = {};
+    for (const pid of plan.availablePlayers) summary[pid] = 0;
+    for (const pa of plan.periodAssignments) {
+      assertEqual(Object.keys(pa.assignments).length, 7, `trial ${trial}: period has 7 assignments`);
+      for (const pid of Object.values(pa.assignments)) summary[pid]++;
+    }
+    const played = Object.values(summary);
+    const spread = Math.max(...played) - Math.min(...played);
+    assert(spread <= 1, `trial ${trial}: playing time spread <= 1 (got ${spread})`);
+  }
+
+  // Check for variety: serialize position assignments and see if at least 2 differ
+  const sigs = plans.map(p =>
+    p.periodAssignments.map(pa =>
+      Object.entries(pa.assignments).sort(([a],[b]) => a.localeCompare(b)).map(([k,v]) => `${k}:${v}`).join(',')
+    ).join('|')
+  );
+  const unique = new Set(sigs).size;
+  assert(unique >= 2, `jitter produces variety: ${unique} unique plans out of 5`);
+}

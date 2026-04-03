@@ -59,6 +59,103 @@ let ctxPickSeason = null;
 const WEIGHT_LABELS = { 1: 'Normal', 2: 'Prefer', 3: 'Strong', 0: 'Never' };
 const WEIGHT_CYCLE = [1, 2, 3, 0];
 
+// -- Display Name Helper (jersey number + name) --------------------------
+
+/** Returns display name for a player: "Alex #7" if number exists, else "Alex" (plain text for toasts/share) */
+function displayName(pid) {
+  if (!roster || !roster.players[pid]) return pid;
+  const p = roster.players[pid];
+  return p.number ? `${p.name} #${p.number}` : p.name;
+}
+
+/** Returns HTML display name with muted jersey number span (for rendered UI) */
+function displayNameHtml(pid) {
+  if (!roster || !roster.players[pid]) return esc(pid);
+  const p = roster.players[pid];
+  if (p.number) return `${esc(p.name)}<span class="player-number">#${esc(p.number)}</span>`;
+  return esc(p.name);
+}
+
+/** Returns SVG text content with muted tspan for jersey number */
+function displayNameSvg(pid) {
+  if (!roster || !roster.players[pid]) return esc(pid);
+  const p = roster.players[pid];
+  if (p.number) return `${esc(p.name)}<tspan fill="var(--fg2)" font-size="9"> #${esc(p.number)}</tspan>`;
+  return esc(p.name);
+}
+
+// -- Position Input Sanitization -----------------------------------------
+
+/**
+ * Sanitize a raw position string into a clean array.
+ * Rules: auto-uppercase, collapse whitespace, deduplicate, truncate tokens > 5 chars.
+ * If no commas detected, treats spaces as delimiters.
+ * Returns { positions: string[], changed: boolean, deduped: boolean }
+ */
+function sanitizePositions(rawStr) {
+  const hasCommas = rawStr.includes(',');
+  let tokens;
+  if (hasCommas) {
+    tokens = rawStr.split(',');
+  } else {
+    tokens = rawStr.split(/\s+/);
+  }
+
+  tokens = tokens
+    .map(t => t.trim().toUpperCase())
+    .filter(t => t.length > 0)
+    .map(t => t.slice(0, 5));
+
+  const seen = new Set();
+  const deduped = [];
+  let hadDuplicates = false;
+  for (const t of tokens) {
+    if (seen.has(t)) {
+      hadDuplicates = true;
+    } else {
+      seen.add(t);
+      deduped.push(t);
+    }
+  }
+
+  const cleaned = deduped.join(', ');
+  const changed = cleaned !== rawStr.trim();
+
+  return { positions: deduped, changed, deduped: hadDuplicates };
+}
+
+// -- Backup Indicator ----------------------------------------------------
+
+/** Mark that data has been modified since last backup */
+function markDataDirty() {
+  localStorage.setItem('rot_lastDataChangeAt', String(Date.now()));
+  updateBackupIndicator();
+}
+
+/** Mark that a backup was just completed */
+function markBackupDone() {
+  localStorage.setItem('rot_lastBackupAt', String(Date.now()));
+  updateBackupIndicator();
+}
+
+/** Returns true if data has changed since last backup */
+function hasUnsavedChanges() {
+  const lastChange = parseInt(localStorage.getItem('rot_lastDataChangeAt') || '0');
+  const lastBackup = parseInt(localStorage.getItem('rot_lastBackupAt') || '0');
+  return lastChange > lastBackup;
+}
+
+/** Update the visual indicator on the menu button */
+function updateBackupIndicator() {
+  const btn = document.querySelector('.header-menu-btn');
+  if (!btn) return;
+  if (hasUnsavedChanges()) {
+    btn.classList.add('has-unsaved');
+  } else {
+    btn.classList.remove('has-unsaved');
+  }
+}
+
 /**
  * Returns the display label for a period count.
  *   getPeriodLabel(4)        => 'Quarter'
@@ -102,6 +199,16 @@ function getSpecialPosition() {
 
 // -- Init -----------------------------------------------------------
 function init() {
+  // Wrap Storage mutation methods to auto-track data changes for backup indicator
+  for (const method of ['saveRoster', 'saveGame', 'deleteGame', 'savePlays', 'deleteTeam', 'deleteSeason', 'importBackup', 'importSharedTeam']) {
+    const orig = Storage[method].bind(Storage);
+    Storage[method] = function(...args) {
+      const result = orig(...args);
+      markDataDirty();
+      return result;
+    };
+  }
+
   // Apply theme before anything renders
   const settings = loadSettings();
   applyTheme(settings.theme);
@@ -128,6 +235,7 @@ function init() {
   if (!ctx) {
     updateContextLabel();
     showWelcome();
+    updateBackupIndicator();
     // Pulse the context label to draw attention on first launch
     if (teams.length === 0) {
       const cl = document.getElementById('contextLabel');
@@ -137,6 +245,7 @@ function init() {
   }
 
   loadContextData();
+  updateBackupIndicator();
 }
 
 function loadContextData() {
@@ -648,6 +757,20 @@ function toggleCopyRoster() {
   document.getElementById('toggleCopyRoster').classList.toggle('on', copyRosterEnabled);
 }
 
+function handlePositionBlur() {
+  const input = document.getElementById('positionsInput');
+  if (!input) return;
+  const result = sanitizePositions(input.value);
+  if (result.changed) {
+    input.value = result.positions.join(', ');
+    if (result.deduped) {
+      showToast('Duplicate positions removed', 'success');
+    } else {
+      showToast('Positions formatted', 'success');
+    }
+  }
+}
+
 function saveSeason() {
   const name = document.getElementById('seasonNameInput').value.trim();
   if (!name) return;
@@ -656,7 +779,8 @@ function saveSeason() {
   if (!slug) return;
 
   const posStr = document.getElementById('positionsInput').value;
-  const positions = posStr.split(',').map(s => s.trim()).filter(Boolean);
+  const result = sanitizePositions(posStr);
+  const positions = result.positions;
   if (positions.length < 2) {
     showToast('Need at least 2 positions', 'error');
     return;
@@ -732,7 +856,7 @@ function renderRoster() {
     return `
       <li class="player-item" onclick="openPlayerModal('${pid}')">
         <span class="player-num">${i + 1}</span>
-        <span class="player-name">${esc(p.name)}</span>
+        <span class="player-name">${displayNameHtml(pid)}</span>
         <div class="player-badges">${badges}</div>
         <button class="edit-btn" aria-label="Edit ${esc(p.name)}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
       </li>
@@ -744,16 +868,19 @@ function openPlayerModal(pid = null) {
   if (!roster) return;
   editingPlayerId = pid;
   const nameInput = document.getElementById('modalPlayerName');
+  const numInput = document.getElementById('modalPlayerNum');
   const deleteRow = document.getElementById('deleteRow');
 
   if (pid && roster.players[pid]) {
     document.getElementById('modalTitle').textContent = 'Edit Player';
     nameInput.value = roster.players[pid].name;
+    numInput.value = roster.players[pid].number || '';
     modalWeights = { ...(roster.players[pid].positionWeights || {}) };
     deleteRow.classList.remove('hidden');
   } else {
     document.getElementById('modalTitle').textContent = 'Add Player';
     nameInput.value = '';
+    numInput.value = '';
     modalWeights = {};
     deleteRow.classList.add('hidden');
   }
@@ -797,6 +924,8 @@ function savePlayer() {
   const name = document.getElementById('modalPlayerName').value.trim();
   if (!name) return;
 
+  const number = document.getElementById('modalPlayerNum').value.trim().slice(0, 2);
+
   let pid = editingPlayerId;
   if (!pid) {
     const nums = Object.keys(roster.players)
@@ -806,12 +935,16 @@ function savePlayer() {
     pid = 'p' + String(next).padStart(2, '0');
   }
 
-  roster.players[pid] = {
+  const playerData = {
     name,
     positionWeights: Object.keys(modalWeights).length > 0 ? { ...modalWeights } : {},
   };
+  if (number) playerData.number = number;
+
+  roster.players[pid] = playerData;
 
   Storage.saveRoster(ctx.teamSlug, ctx.seasonSlug, roster);
+  markDataDirty();
   renderRoster();
   closePlayerModal();
 }
@@ -827,6 +960,7 @@ function deletePlayer() {
     onConfirm: () => {
       delete roster.players[editingPlayerId];
       Storage.saveRoster(ctx.teamSlug, ctx.seasonSlug, roster);
+      markDataDirty();
       renderRoster();
       closePlayerModal();
     }
@@ -869,7 +1003,7 @@ function renderAvailableItems() {
   let pinHintHtml = '';
   if (lockCount > 0) {
     const lockList = Object.entries(gameLocks).map(([pid, pos]) => {
-      const name = roster.players[pid]?.name || pid;
+      const name = displayName(pid);
       return `${name}\u00a0=\u00a0${pos}`;
     }).join(', ');
     pinHintHtml = `<div class="pin-hint">Pinned: ${lockList}</div>`;
@@ -907,7 +1041,7 @@ function renderAvailableItems() {
     return `
       <li class="available-item${isPickerOpen ? ' picker-open' : ''}${isDragging}${isDropTarget}${isFlash}" data-idx="${idx}">
         <div class="check ${a.checked ? 'checked' : ''}" onclick="toggleAvailable(${idx})" role="checkbox" aria-checked="${a.checked}" aria-label="Toggle ${esc(p.name)}"></div>
-        <span class="player-name" onclick="toggleLockPicker('${a.pid}')">${esc(p.name)}</span>
+        <span class="player-name" onclick="toggleLockPicker('${a.pid}')">${displayNameHtml(a.pid)}</span>
         ${lockBadge}
         ${isStarter && !lock ? '<span class="starter-badge">START</span>' : ''}
         <div class="drag-handle" aria-label="Drag to reorder">
@@ -1057,7 +1191,7 @@ function onAvailDragStart(e) {
       availReorderFlash = insertIdx;
       renderAvailableItems();
 
-      const name = roster.players[item.pid]?.name || item.pid;
+      const name = displayName(item.pid);
       showToast(`Moved ${name}`, 'success');
 
       setTimeout(() => { availReorderFlash = null; renderAvailableItems(); }, 1200);
@@ -1487,7 +1621,7 @@ function renderLineup() {
   </div>`;
 
   if (swapSelection) {
-    const selName = roster.players[swapSelection.pid]?.name || swapSelection.pid;
+    const selName = displayName(swapSelection.pid);
     html += `<div class="swap-hint">Tap another player to swap with ${esc(selName)}  -  <span onclick="clearSwap()" style="text-decoration:underline;cursor:pointer">Cancel</span></div>`;
   }
 
@@ -1509,24 +1643,23 @@ function renderLineup() {
       html += '<div class="period-body">';
       for (const pos of roster.positions) {
         const pid = pa.assignments[pos];
-        const name = pid && roster.players[pid] ? roster.players[pid].name : '?';
+        const nameHtml = pid && roster.players[pid] ? displayNameHtml(pid) : '?';
         const isGK = pos === 'GK' ? ' gk' : '';
         const isSel = swapSelection && swapSelection.periodIdx === pi && swapSelection.pid === pid ? ' swap-selected' : '';
         const isHi = swapHighlight && swapHighlight.periodIdx === pi && swapHighlight.pids.includes(pid) ? ' swap-flash' : '';
         const goals = getPlayerGoals(plan, pid, pi);
-        html += `<div class="lineup-row${isSel}${isHi}"><div class="lineup-swap-target" onclick="handleSwapTap(${pi},'${pid}','${pos}')"><span class="lineup-pos${isGK}">${pos}</span><span class="lineup-name">${esc(name)}</span></div><div class="goal-counter" onclick="event.stopPropagation()"><button class="goal-btn" onclick="changePlayerGoals(${pi},'${pid}',-1)" aria-label="Remove goal">&minus;</button><span class="goal-count${goals > 0 ? ' has-goals' : ''}">${goals}</span><button class="goal-btn" onclick="changePlayerGoals(${pi},'${pid}',1)" aria-label="Add goal">+</button></div></div>`;
+        html += `<div class="lineup-row${isSel}${isHi}"><div class="lineup-swap-target" onclick="handleSwapTap(${pi},'${pid}','${pos}')"><span class="lineup-pos${isGK}">${pos}</span><span class="lineup-name">${nameHtml}</span></div><div class="goal-counter" onclick="event.stopPropagation()"><button class="goal-btn" onclick="changePlayerGoals(${pi},'${pid}',-1)" aria-label="Remove goal">&minus;</button><span class="goal-count${goals > 0 ? ' has-goals' : ''}">${goals}</span><button class="goal-btn" onclick="changePlayerGoals(${pi},'${pid}',1)" aria-label="Add goal">+</button></div></div>`;
       }
       html += '</div>';
       if (pa.bench.length > 0) {
         html += '<div class="bench-row"><span class="bench-label">Bench</span>';
         html += '<div class="bench-chips">';
         for (const bpid of pa.bench) {
-          const bname = roster.players[bpid]?.name || bpid;
           const isSel = swapSelection && swapSelection.periodIdx === pi && swapSelection.pid === bpid ? ' swap-selected' : '';
           const isHi = swapHighlight && swapHighlight.periodIdx === pi && swapHighlight.pids.includes(bpid) ? ' swap-flash' : '';
           const bGoals = getPlayerGoals(plan, bpid, pi);
           const bGoalBadge = bGoals > 0 ? ` <span class="bench-goal-badge">${bGoals}</span>` : '';
-          html += `<div class="bench-chip${isSel}${isHi}" onclick="handleSwapTap(${pi},'${bpid}','bench')">${esc(bname)}${bGoalBadge}</div>`;
+          html += `<div class="bench-chip${isSel}${isHi}" onclick="handleSwapTap(${pi},'${bpid}','bench')">${displayNameHtml(bpid)}${bGoalBadge}</div>`;
         }
         html += '</div></div>';
       }
@@ -1538,8 +1671,7 @@ function renderLineup() {
   html += '<table class="season-table"><thead><tr><th>Player</th><th>Played</th><th>Positions</th></tr></thead><tbody>';
   for (const pid of plan.availablePlayers) {
     const s = summary[pid];
-    const name = roster.players[pid]?.name || pid;
-    html += `<tr><td>${esc(name)}</td><td>${s.periodsPlayed}/${plan.numPeriods}</td><td style="font-size:11px">${s.positions.join(', ')}</td></tr>`;
+    html += `<tr><td>${displayNameHtml(pid)}</td><td>${s.periodsPlayed}/${plan.numPeriods}</td><td style="font-size:11px">${s.positions.join(', ')}</td></tr>`;
   }
   html += '</tbody></table></div>';
   el.innerHTML = html;
@@ -1580,9 +1712,9 @@ function openEditRosterModal() {
   const inGame = new Set(currentPlan.availablePlayers);
   const missing = Object.entries(roster.players)
     .filter(([pid]) => !inGame.has(pid))
-    .map(([pid, p]) => ({ pid, name: p.name }));
+    .map(([pid, p]) => ({ pid, name: displayName(pid) }));
   const inGamePlayers = currentPlan.availablePlayers
-    .map(pid => ({ pid, name: roster.players[pid]?.name || pid }));
+    .map(pid => ({ pid, name: displayName(pid) }));
 
   // Period options for "from" selector (Q2+)
   let periodOpts = '';
@@ -1796,10 +1928,10 @@ function doRebalance(fromPeriodIdx, newPids = [], removedPids = []) {
     renderSeason();
 
     if (removedPids.length > 0) {
-      const names = removedPids.map(pid => roster.players[pid]?.name || pid).join(', ');
+      const names = removedPids.map(pid => displayName(pid)).join(', ');
       showToast(`${names} removed, lineup rebalanced`, 'success');
     } else if (newPids.length > 0) {
-      const names = newPids.map(pid => roster.players[pid]?.name || pid).join(', ');
+      const names = newPids.map(pid => displayName(pid)).join(', ');
       showToast(`${names} added, lineup rebalanced`, 'success');
     } else {
       showToast('Lineup rebalanced', 'success');
@@ -1926,10 +2058,11 @@ function handleSwapTap(periodIdx, pid, pos) {
   swapSelection = null;
   swapHighlight = { periodIdx, pids: [sel.pid, pid] };
   Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+  markDataDirty();
   renderLineup();
 
-  const nameA = roster.players[sel.pid]?.name || sel.pid;
-  const nameB = roster.players[pid]?.name || pid;
+  const nameA = displayName(sel.pid);
+  const nameB = displayName(pid);
   showToast(`Swapped ${nameA} and ${nameB}`, 'success');
 
   setTimeout(() => { swapHighlight = null; renderLineup(); }, 1200);
@@ -1967,13 +2100,13 @@ function buildLineupText() {
     lines.push(periodHead);
     for (const pos of roster.positions) {
       const pid = pa.assignments[pos];
-      const name = roster.players[pid]?.name || pid;
+      const name = displayName(pid);
       const g = getPlayerGoals(plan, pid, pi);
       const goalStr = g > 0 ? `  [${g} goal${g > 1 ? 's' : ''}]` : '';
       lines.push(`  ${pos.padEnd(4)} ${name}${goalStr}`);
     }
     if (pa.bench.length > 0) {
-      const benchNames = pa.bench.map(b => roster.players[b]?.name || b).join(', ');
+      const benchNames = pa.bench.map(b => displayName(b)).join(', ');
       lines.push(`  Bench: ${benchNames}`);
     }
     lines.push('');
@@ -1983,7 +2116,7 @@ function buildLineupText() {
   lines.push('Player Summary:');
   for (const pid of plan.availablePlayers) {
     const s = summary[pid];
-    const name = roster.players[pid]?.name || pid;
+    const name = displayName(pid);
     lines.push(`  ${name}: ${s.periodsPlayed}/${plan.numPeriods}  --  ${s.positions.join(', ')}`);
   }
 
@@ -2212,7 +2345,6 @@ function renderSeasonOverview(games, stats, pids) {
 
   for (let i = 0; i < pids.length; i++) {
     const pid = pids[i];
-    const name = roster.players[pid]?.name || pid;
     const ratio = ratios[i];
     const pct = Math.round(ratio * 100);
     const devFromAvg = teamAvg > 0 ? Math.abs(ratio - teamAvg) / teamAvg : 0;
@@ -2220,7 +2352,7 @@ function renderSeasonOverview(games, stats, pids) {
     const w = Math.max((ratio / maxRatio) * barMaxW, 2);
     const y = (i + 1) * rowH + 2;
 
-    html += `<text x="${nameW}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="11" text-anchor="end">${esc(name)}</text>`;
+    html += `<text x="${nameW}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="11" text-anchor="end">${displayNameSvg(pid)}</text>`;
     html += `<rect x="${barX}" y="${y + 4}" width="${w}" height="${rowH - 10}" rx="3" fill="${color}" opacity="0.85"/>`;
     html += `<text x="${barX + w + 5}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="10" font-family="'JetBrains Mono',monospace">${pct}%</text>`;
   }
@@ -2358,10 +2490,9 @@ function renderSeasonPlayers(games, stats, pids) {
 
   for (const pid of pids) {
     const s = stats[pid];
-    const name = roster.players[pid]?.name || pid;
     const avg = s.gamesAttended > 0 ? (s.totalPeriodsPlayed / s.gamesAttended).toFixed(1) : '0';
     const goals = seasonGoals[pid] || 0;
-    html += `<tr><td>${esc(name)}</td><td>${s.gamesAttended}</td><td>${avg}</td>`;
+    html += `<tr><td>${displayNameHtml(pid)}</td><td>${s.gamesAttended}</td><td>${avg}</td>`;
     if (anyGoals) html += `<td style="color:${goals > 0 ? 'var(--accent)' : 'var(--fg2)'};font-weight:${goals > 0 ? '700' : '400'}">${goals}</td>`;
     for (const pos of roster.positions) {
       html += `<td>${s.periodsByPosition[pos] || 0}</td>`;
@@ -2385,12 +2516,11 @@ function renderSeasonPlayers(games, stats, pids) {
 
     for (let i = 0; i < goalPids.length; i++) {
       const pid = goalPids[i];
-      const name = roster.players[pid]?.name || pid;
       const g = seasonGoals[pid];
       const w = Math.max((g / maxGoals) * barMaxW, 2);
       const y = i * rowH + 2;
 
-      html += `<text x="${nameW}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="11" text-anchor="end">${esc(name)}</text>`;
+      html += `<text x="${nameW}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="11" text-anchor="end">${displayNameSvg(pid)}</text>`;
       html += `<rect x="${barX}" y="${y + 4}" width="${w}" height="${rowH - 10}" rx="3" fill="var(--accent)" opacity="0.85"/>`;
       html += `<text x="${barX + w + 5}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="10" font-weight="600" font-family="'JetBrains Mono',monospace">${g}</text>`;
     }
@@ -2409,12 +2539,11 @@ function renderSeasonPlayers(games, stats, pids) {
   for (let i = 0; i < pids.length; i++) {
     const pid = pids[i];
     const s = stats[pid];
-    const name = roster.players[pid]?.name || pid;
     const total = s.totalPeriodsPlayed || 1;
     const y = i * rowH + 2;
     let xOff = barX;
 
-    html += `<text x="${nameW}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="11" text-anchor="end">${esc(name)}</text>`;
+    html += `<text x="${nameW}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="11" text-anchor="end">${displayNameSvg(pid)}</text>`;
 
     for (const pos of roster.positions) {
       const count = s.periodsByPosition[pos] || 0;
@@ -2541,12 +2670,15 @@ function toggleHeaderMenu() {
 
   const hasTeams = Storage.loadTeams().length > 0;
 
+  const unsaved = hasUnsavedChanges();
+  const backupDot = unsaved ? '<span class="backup-dot-inline"></span>' : '';
+
   const menu = document.createElement('div');
   menu.className = 'header-menu';
   menu.id = 'headerMenu';
   menu.innerHTML = `
     <div class="header-menu-label">Backup</div>
-    <button class="header-menu-item" onclick="closeHeaderMenu();openBackupModal()">Back Up</button>
+    <button class="header-menu-item" onclick="closeHeaderMenu();openBackupModal()">Back Up${backupDot}</button>
     <button class="header-menu-item" onclick="closeHeaderMenu();openRestoreModal()">Restore</button>
     <div class="header-menu-divider"></div>
     <div class="header-menu-label">Share</div>
@@ -2701,28 +2833,42 @@ function showPromptModal({ title, message, placeholder = '', defaultValue = '', 
 }
 
 async function shareOrDownload(blob, filename, toastMsg) {
-  // Use .txt extension for broader share sheet compatibility on Android
-  // (more apps register to receive .txt than .json)
-  const shareFilename = filename.replace(/\.json$/, '.txt');
-  const file = new File([blob], shareFilename, { type: 'text/plain' });
-  const canShare = navigator.canShare && navigator.canShare({ files: [file] });
+  // Only attempt native share on mobile devices.
+  // Desktop always downloads directly — avoids unexpected share dialogs.
+  // Uses the Client Hints API (navigator.userAgentData.mobile) which is the
+  // only reliable way to distinguish mobile from desktop in Chrome. Touch
+  // detection (ontouchstart, maxTouchPoints) and CSS media queries (pointer:
+  // coarse) all produce false positives on Windows desktops with certain
+  // hardware/driver configurations.
+  const isMobile = navigator.userAgentData
+    ? navigator.userAgentData.mobile
+    : /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  if (canShare) {
-    try {
-      await navigator.share({ files: [file], title: shareFilename });
-      if (toastMsg) showToast(toastMsg, 'success');
-      return;
-    } catch (e) {
-      if (e.name === 'AbortError') return; // user cancelled
-      // Share failed — fall through to download
+  if (isMobile) {
+    // Use .txt extension for broader share sheet compatibility on Android
+    // (more apps register to receive .txt than .json)
+    const shareFilename = filename.replace(/\.json$/, '.txt');
+    const file = new File([blob], shareFilename, { type: 'text/plain' });
+    const canShare = navigator.canShare && navigator.canShare({ files: [file] });
+
+    if (canShare) {
+      try {
+        await navigator.share({ files: [file], title: shareFilename });
+        if (toastMsg) showToast(toastMsg, 'success');
+        return true;
+      } catch (e) {
+        if (e.name === 'AbortError') return false; // user cancelled
+        // Share failed — fall through to download
+      }
     }
   }
   // Desktop or share not supported — download directly
   downloadBlob(blob, filename);
   if (toastMsg) showToast(toastMsg, 'success');
+  return true;
 }
 
-function backUpData() {
+async function backUpData() {
   const data = Storage.exportAll();
   const teamCount = data.teams?.length || 0;
   if (teamCount === 0 && data.standalonePlays.length === 0) {
@@ -2731,7 +2877,8 @@ function backUpData() {
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const filename = `roster-rotation-backup-${new Date().toISOString().split('T')[0]}.json`;
-  shareOrDownload(blob, filename, `Backed up ${teamCount} team${teamCount !== 1 ? 's' : ''}`);
+  const success = await shareOrDownload(blob, filename, `Backed up ${teamCount} team${teamCount !== 1 ? 's' : ''}`);
+  if (success) markBackupDone();
 }
 
 function restoreFromLocalFile() {

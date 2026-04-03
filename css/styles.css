@@ -273,6 +273,11 @@ label {
   font-size: 13px; font-weight: 600;
   color: var(--fg2); width: 24px; text-align: center;
 }
+.player-number {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; font-weight: 600;
+  color: var(--fg2); margin-left: 4px;
+}
 .player-name { flex: 1; font-weight: 500; }
 .player-badges { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .badge {
@@ -283,6 +288,21 @@ label {
 }
 .badge.prefer { background: rgba(0,230,118,0.15); color: var(--accent); }
 .badge.exclude { background: rgba(255,82,82,0.15); color: var(--danger); }
+
+/* Backup indicator — amber dot on menu button */
+.header-menu-btn.has-unsaved { position: relative; }
+.header-menu-btn.has-unsaved::after {
+  content: '';
+  position: absolute; top: 2px; right: 4px;
+  width: 7px; height: 7px;
+  background: #ffc107; border-radius: 50%;
+  pointer-events: none;
+}
+.backup-dot-inline {
+  display: inline-block; width: 7px; height: 7px;
+  background: #ffc107; border-radius: 50%;
+  margin-left: 6px; vertical-align: middle;
+}
 
 .player-item .edit-btn {
   background: none; border: none; color: var(--fg2);

@@ -290,7 +290,7 @@ function renderField() {
     if (pa.bench.length > 0) {
       html += '<div class="field-bench"><div class="field-bench-label">Bench</div>';
       for (const bpid of pa.bench) {
-        const bname = roster.players[bpid]?.name || bpid;
+        const bname = typeof displayName === 'function' ? displayName(bpid) : (roster.players[bpid]?.name || bpid);
         html += `<div class="bench-chip">${esc(bname)}</div>`;
       }
       html += '</div>';
@@ -327,11 +327,15 @@ function buildFieldSVG(formInfo, layout, plan, periodIdx) {
     : getStandalonePositions();
   const coords = layout.coords;
   let playerMap = null;
+  let numberMap = null;
   if (plan) {
     const pa = plan.periodAssignments[periodIdx];
     playerMap = {};
+    numberMap = {};
     for (const [pos, pid] of Object.entries(pa.assignments)) {
       playerMap[pos] = roster.players[pid]?.name || pid;
+      const num = roster.players[pid]?.number;
+      if (num) numberMap[pos] = num;
     }
   }
 
@@ -413,8 +417,11 @@ function buildFieldSVG(formInfo, layout, plan, periodIdx) {
     svg += `<text class="dot-label" x="${cx}" y="${cy + 1}" font-size="9">${pos}</text>`;
 
     if (hasPlayer && fieldShowNames) {
-      const displayName = playerMap[pos].length > 10 ? playerMap[pos].slice(0, 9) + '...' : playerMap[pos];
-      svg += `<text class="dot-name" x="${cx}" y="${cy + dotR + 13}" font-size="11">${escXml(displayName)}</text>`;
+      const pName = playerMap[pos].length > 10 ? playerMap[pos].slice(0, 9) + '\u2026' : playerMap[pos];
+      svg += `<text class="dot-name" x="${cx}" y="${cy + dotR + 13}" font-size="11">${escXml(pName)}</text>`;
+      if (numberMap && numberMap[pos]) {
+        svg += `<text class="dot-number" x="${cx}" y="${cy + dotR + 25}" font-size="9" fill="rgba(255,255,255,0.6)" text-anchor="middle" font-family="'JetBrains Mono',monospace">#${escXml(numberMap[pos])}</text>`;
+      }
     }
 
     svg += '</g>';
@@ -1574,6 +1581,7 @@ function onDotOverlayPointerDown(e) {
       const texts = state.svgGroup.querySelectorAll('text');
       if (texts[0]) { texts[0].setAttribute('x', dotCx); texts[0].setAttribute('y', dotCy + 1); }
       if (texts[1]) { texts[1].setAttribute('x', dotCx); texts[1].setAttribute('y', dotCy + 16 + 13); }
+      if (texts[2]) { texts[2].setAttribute('x', dotCx); texts[2].setAttribute('y', dotCy + 16 + 25); }
     }
 
     overlay.style.left = (dotCx / 340 * 100) + '%';

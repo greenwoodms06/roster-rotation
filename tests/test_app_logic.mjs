@@ -136,4 +136,81 @@ suite('getGameNumLabel');
   assertEqual(label1b, '  (Game 1)', 'first game labeled Game 1 when multi-game day');
 }
 
+suite('sanitizePositions — basic formatting');
+{
+  const r1 = run(ctx, "sanitizePositions('gk, cb, lb')");
+  assertEqual(r1.positions, ['GK', 'CB', 'LB'], 'auto-uppercases tokens');
+  assertEqual(r1.changed, true, 'lowercased input counts as changed');
+
+  const r2 = run(ctx, "sanitizePositions('GK, CB, LB')");
+  assertEqual(r2.changed, false, 'already clean input is not changed');
+  assertEqual(r2.deduped, false, 'no duplicates');
+}
+
+suite('sanitizePositions — space delimiters');
+{
+  const r = run(ctx, "sanitizePositions('GK CB LB RB')");
+  assertEqual(r.positions, ['GK', 'CB', 'LB', 'RB'], 'spaces as delimiters when no commas');
+}
+
+suite('sanitizePositions — deduplication');
+{
+  const r = run(ctx, "sanitizePositions('GK, CB, GK, LB')");
+  assertEqual(r.positions, ['GK', 'CB', 'LB'], 'removes duplicate');
+  assertEqual(r.deduped, true, 'deduped flag set');
+}
+
+suite('sanitizePositions — edge cases');
+{
+  const r1 = run(ctx, "sanitizePositions('  GK,,CB,  ,LB  ')");
+  assertEqual(r1.positions, ['GK', 'CB', 'LB'], 'handles double commas and whitespace');
+
+  const r2 = run(ctx, "sanitizePositions('GOALIE, CB')");
+  assertEqual(r2.positions, ['GOALI', 'CB'], 'truncates tokens > 5 chars');
+
+  const r3 = run(ctx, "sanitizePositions('')");
+  assertEqual(r3.positions, [], 'empty string returns empty array');
+}
+
+suite('displayName — with and without jersey number');
+{
+  run(ctx, `
+    roster = {
+      positions: ['GK', 'CB'],
+      players: {
+        p01: { name: 'Alex', number: '7', positionWeights: {} },
+        p02: { name: 'Jordan', positionWeights: {} },
+        p03: { name: 'Sam', number: '10', positionWeights: {} }
+      }
+    };
+  `);
+
+  const dn1 = run(ctx, "displayName('p01')");
+  assertEqual(dn1, 'Alex #7', 'shows jersey number after name');
+
+  const dn2 = run(ctx, "displayName('p02')");
+  assertEqual(dn2, 'Jordan', 'no number means just name');
+
+  const dn3 = run(ctx, "displayName('p03')");
+  assertEqual(dn3, 'Sam #10', 'two-digit number works');
+
+  const dn4 = run(ctx, "displayName('p99')");
+  assertEqual(dn4, 'p99', 'unknown pid returns pid string');
+}
+
+suite('backup indicator — markDataDirty / hasUnsavedChanges');
+{
+  run(ctx, "localStorage.removeItem('rot_lastDataChangeAt'); localStorage.removeItem('rot_lastBackupAt');");
+  const clean = run(ctx, "hasUnsavedChanges()");
+  assertEqual(clean, false, 'no timestamps means no unsaved changes');
+
+  run(ctx, "markDataDirty()");
+  const dirty = run(ctx, "hasUnsavedChanges()");
+  assertEqual(dirty, true, 'after markDataDirty, has unsaved changes');
+
+  run(ctx, "markBackupDone()");
+  const backed = run(ctx, "hasUnsavedChanges()");
+  assertEqual(backed, false, 'after markBackupDone, no unsaved changes');
+}
+
 export default function run_app_logic_tests() {}

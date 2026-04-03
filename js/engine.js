@@ -397,7 +397,8 @@ class RotationEngine {
           RotationEngine.WEIGHT_SEASON_BALANCE * exposureCost +
           RotationEngine.WEIGHT_PREFERENCE * weightCost +
           gameDiversityWeight * timesThisGame +
-          continuityCost;
+          continuityCost +
+          Math.random() * 0.01;  // tiebreaker jitter — equally-fair plans vary between generations
       }
     }
     return matrix;
