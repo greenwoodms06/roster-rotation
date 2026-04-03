@@ -104,6 +104,7 @@ export function createContext(opts = {}) {
       click: () => {},
       style: {},
       setAttribute: () => {},
+      addEventListener: () => {},
     }),
     querySelectorAll: () => [],
     querySelector: () => null,

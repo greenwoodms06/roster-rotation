@@ -236,6 +236,7 @@ function init() {
     updateContextLabel();
     showWelcome();
     updateBackupIndicator();
+    setupTabSwipe();
     // Pulse the context label to draw attention on first launch
     if (teams.length === 0) {
       const cl = document.getElementById('contextLabel');
@@ -246,6 +247,50 @@ function init() {
 
   loadContextData();
   updateBackupIndicator();
+  setupTabSwipe();
+}
+
+// -- Tab Swipe Gesture ------------------------------------------------
+
+function setupTabSwipe() {
+  const app = document.getElementById('app');
+  if (!app) return;
+
+  let startX = 0, startY = 0, startTime = 0;
+
+  app.addEventListener('touchstart', (e) => {
+    // Skip if a modal is open
+    if (document.querySelector('.modal-overlay:not(.hidden)')) return;
+    // Skip if touch started on an interactive field element
+    const t = e.target;
+    if (t.closest && (t.closest('.dot-overlay') || t.closest('.def-overlay') || t.closest('.field-draw-layer'))) return;
+
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    startTime = Date.now();
+  }, { passive: true });
+
+  app.addEventListener('touchend', (e) => {
+    if (!startTime) return;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    const elapsed = Date.now() - startTime;
+    startTime = 0;
+
+    // Must be a quick, clearly horizontal swipe
+    if (elapsed > 400) return;           // too slow
+    if (Math.abs(dx) < 60) return;       // too short
+    if (Math.abs(dy) > Math.abs(dx) * 0.7) return; // too vertical
+
+    const buttons = [...document.querySelectorAll('nav button')];
+    const activeIdx = buttons.findIndex(b => b.classList.contains('active'));
+    if (activeIdx < 0) return;
+
+    const nextIdx = dx < 0 ? activeIdx + 1 : activeIdx - 1;
+    if (nextIdx >= 0 && nextIdx < buttons.length) {
+      buttons[nextIdx].click();
+    }
+  }, { passive: true });
 }
 
 function loadContextData() {
@@ -1595,7 +1640,7 @@ function renderLineup() {
       </div>
       <div class="lineup-actions">
         <button class="btn btn-sm btn-outline" onclick="openEditRosterModal()">Edit</button>
-        <button class="btn btn-sm btn-outline" onclick="openShareMenu()" id="shareBtn">Share</button>
+        <button class="btn btn-sm btn-outline" onclick="shareLineup()">Share</button>
         <button class="btn btn-sm btn-outline" onclick="deleteCurrentGame()">Delete</button>
       </div>
     </div>
@@ -2129,69 +2174,12 @@ function buildLineupText() {
   return lines.join('\n');
 }
 
-function openShareMenu() {
-  closeShareMenu();
-  const btn = document.getElementById('shareBtn');
-  const actions = btn.closest('.lineup-actions');
-
-  const backdrop = document.createElement('div');
-  backdrop.className = 'share-menu-backdrop';
-  backdrop.onclick = closeShareMenu;
-  document.body.appendChild(backdrop);
-
-  const menu = document.createElement('div');
-  menu.className = 'share-menu';
-  menu.id = 'shareMenu';
-
-  let items = '<button class="share-menu-item" onclick="shareCopy()"> Copy to Clipboard</button>';
-  if (navigator.share) {
-    items += '<button class="share-menu-item" onclick="shareNative()"> Share...</button>';
-  }
-  items += '<button class="share-menu-item" onclick="shareDownload()"> Download as Text</button>';
-  menu.innerHTML = items;
-
-  actions.appendChild(menu);
-}
-
-function closeShareMenu() {
-  document.getElementById('shareMenu')?.remove();
-  document.querySelector('.share-menu-backdrop')?.remove();
-}
-
-async function shareCopy() {
-  closeShareMenu();
-  const text = buildLineupText();
-  try {
-    await navigator.clipboard.writeText(text);
-    showToast('Copied to clipboard', 'success');
-  } catch {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.cssText = 'position:fixed;left:-9999px';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
-    showToast('Copied to clipboard', 'success');
-  }
-}
-
-async function shareNative() {
-  closeShareMenu();
-  try {
-    await navigator.share({ text: buildLineupText() });
-  } catch {
-    // User cancelled
-  }
-}
-
-function shareDownload() {
-  closeShareMenu();
+async function shareLineup() {
+  if (!currentPlan || !roster) return;
   const text = buildLineupText();
   const blob = new Blob([text], { type: 'text/plain' });
   const gid = currentPlan?.gameId || 'lineup';
-  downloadBlob(blob, `lineup-${gid}.txt`);
-  showToast('Downloaded lineup', 'success');
+  await shareOrDownload(blob, `lineup-${gid}.txt`, 'Lineup shared');
 }
 
 // -- Season Summary -------------------------------------------------
@@ -3386,9 +3374,8 @@ document.addEventListener('keydown', (e) => {
     if (document.getElementById(id)) { closeDynamicModal(id); return; }
   }
 
-  // Close share/header/donate menus first
+  // Close header/donate menus first
   if (document.getElementById('donateMenu')) { closeDonateMenu(); return; }
-  if (document.getElementById('shareMenu')) { closeShareMenu(); return; }
   if (document.getElementById('headerMenu')) { closeHeaderMenu(); return; }
 
   // Then static modals (check topmost first)
