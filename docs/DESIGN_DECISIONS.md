@@ -612,3 +612,97 @@ The `scrollIntoView({ block: 'nearest' })` call after repositioning ensures the 
 ### Why Not Approach B (scrollIntoView Only)
 
 A `scrollIntoView` on input focus would scroll the input into view but not guarantee the buttons below it are visible. The overlay repositioning approach keeps the entire modal within the visible area, making both the input and buttons reachable.
+
+## Jersey Number Display
+
+### Data Model
+
+Optional `number` field (string, max 2 characters) on each player object:
+```json
+{ "name": "Alex", "number": "7", "positionWeights": { "GK": 0 } }
+```
+Omitted when empty to keep data clean. Round-trips through JSON export/import automatically.
+
+### Three Display Helpers
+
+The jersey number needs different rendering in three contexts:
+
+- **`displayName(pid)`** — Plain text: `"Alex #7"`. Used in share text output, toast messages, and aria-labels where HTML isn't supported.
+- **`displayNameHtml(pid)`** — HTML: `Alex<span class="player-number">#7</span>`. Used in all rendered UI (roster list, available list, lineup rows, bench chips, season tables). The `.player-number` class applies muted gray (`--fg2`) styling, matching the ESPN box score aesthetic.
+- **`displayNameSvg(pid)`** — SVG: `Alex<tspan fill="var(--fg2)" font-size="9"> #7</tspan>`. Used in season SVG charts (playing time, goals, position distribution).
+
+### Why Name-First Order
+
+The number displays after the name ("Alex #7") rather than before ("#7 Alex") to match the standard used in ESPN box scores and most sports broadcasting. The coach recognizes players by name first, with the jersey number as supplementary context.
+
+### Field Tab: Separate Line
+
+On field SVG dots, the jersey number renders on a second line below the player name rather than inline. The dot text area is narrow (~80px) and appending "#7" to the name caused truncation ("Alexande..."). A separate line at `cy + dotR + 25` in smaller font (9px, muted white) keeps names readable. The drag handler updates `texts[2]` position alongside `texts[0]` (position label) and `texts[1]` (player name).
+
+### Roster Tab: Inline, Not a Badge
+
+Originally implemented as a separate `<span class="jersey-badge">` with green accent background, but this looked like a position weight badge and was pushed far from the name by the flex layout. Changed to render inside the `player-name` span via `displayNameHtml()` with subtle gray text, no background.
+
+## Mobile Detection for Share API
+
+### Problem
+
+`shareOrDownload()` needs to distinguish mobile (use native share sheet) from desktop (download directly). Three detection methods were tried and failed on Windows Chrome:
+
+1. **`'ontouchstart' in window`** — Chrome enables touch event APIs by default for Pointer Events compatibility, regardless of hardware.
+2. **`navigator.maxTouchPoints > 0`** — Some Windows laptops/desktops report non-zero values due to driver configurations or Chrome bugs.
+3. **`window.matchMedia('(pointer: coarse) and (hover: none)')`** — Can match on Windows machines with certain display/driver configurations.
+
+### Solution: Client Hints API
+
+```js
+const isMobile = navigator.userAgentData
+  ? navigator.userAgentData.mobile
+  : /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+```
+
+`navigator.userAgentData.mobile` is a boolean set explicitly by the browser based on the actual platform. It returns `true` on mobile Chrome, `false` on desktop Chrome, with zero ambiguity from hardware quirks. Supported in Chrome 90+ (covers all target devices). Falls back to UA string regex for Safari/Firefox which don't support Client Hints yet.
+
+## Unified Sharing
+
+All three share flows (backup, team share, lineup share) now route through a single `shareOrDownload()` function. Previously, lineup sharing had its own 3-button popup menu (Copy to Clipboard, Share..., Download as Text). This was redundant because:
+
+- On mobile, the native share sheet already provides copy, messaging, Drive, email, etc.
+- On desktop, the user just wants a downloaded file.
+
+The old `openShareMenu`, `closeShareMenu`, `shareCopy`, `shareNative`, `shareDownload` functions were deleted (~50 lines). The Share button on the Lineup tab now calls `shareLineup()` which builds a text blob and passes it through `shareOrDownload()`.
+
+`shareOrDownload()` returns `true` on success and `false` when the user cancels the share sheet. `backUpData()` uses this to only call `markBackupDone()` on confirmed completion.
+
+## Tab Swipe Navigation
+
+Horizontal swipe gesture on `#app` switches between tabs. Setup in `setupTabSwipe()` at init. Thresholds:
+
+- Minimum horizontal distance: 60px
+- Maximum elapsed time: 400ms
+- Horizontality check: `|dy| < |dx| * 0.7` (rejects diagonal/vertical scrolls)
+
+Skips when:
+- Any modal is open (checks for `.modal-overlay:not(.hidden)`)
+- Touch starts on a field-interactive element (`.dot-overlay`, `.def-overlay`, `.field-draw-layer`)
+
+Tab order follows the DOM order of `nav button` elements. Swipe left = next tab, swipe right = previous tab.
+
+## Engine Jitter (Quick Re-roll)
+
+A `Math.random() * 0.01` tiebreaker is added to each cell in `_buildCostMatrix()`. This causes equally-fair lineups to vary between generations without requiring any UI. The magnitude (0.01) is ~100x smaller than the smallest meaningful cost weight (`WEIGHT_GAME_DIVERSITY * 1 = 1.5`), so it only breaks ties between assignments that are equally optimal. Exclusion costs (`1e9`) and all fairness properties are unaffected.
+
+Implemented as default behavior (invisible to the coach) rather than a "re-roll" button, per the roadmap discussion note.
+
+## Position Input Sanitization
+
+`sanitizePositions(rawStr)` normalizes the positions text field on blur and as a safety net inside `saveSeason()`. Rules:
+
+- No commas detected → treat spaces as delimiters
+- Auto-uppercase all tokens
+- Collapse empty tokens (double commas, whitespace-only)
+- Truncate tokens longer than 5 characters
+- Deduplicate (keep first occurrence)
+- Return `{ positions, changed, deduped }` for toast feedback
+
+The blur handler (`handlePositionBlur()`) updates the field value in place so the coach sees the cleanup before hitting Save. Toasts: "Positions formatted" for general cleanup, "Duplicate positions removed" specifically when dedup happened.

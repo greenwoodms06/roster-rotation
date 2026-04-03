@@ -256,7 +256,7 @@ function setupTabSwipe() {
   const app = document.getElementById('app');
   if (!app) return;
 
-  let startX = 0, startY = 0, startTime = 0;
+  let startX = 0, startY = 0, tracking = false, decided = false;
 
   app.addEventListener('touchstart', (e) => {
     // Skip if a modal is open
@@ -267,28 +267,94 @@ function setupTabSwipe() {
 
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
-    startTime = Date.now();
+    tracking = true;
+    decided = false;
+  }, { passive: true });
+
+  app.addEventListener('touchmove', (e) => {
+    if (!tracking) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+
+    // Decide direction once we have enough movement
+    if (!decided && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+      decided = true;
+      if (Math.abs(dy) > Math.abs(dx) * 0.7) {
+        // Vertical scroll — stop tracking
+        tracking = false;
+        return;
+      }
+    }
+    if (!decided) return;
+
+    // Check if swiping toward a valid tab
+    const buttons = [...document.querySelectorAll('nav button')];
+    const activeIdx = buttons.findIndex(b => b.classList.contains('active'));
+    const nextIdx = dx < 0 ? activeIdx + 1 : activeIdx - 1;
+    if (nextIdx < 0 || nextIdx >= buttons.length) return;
+
+    // Apply dampened transform to current tab (peek effect)
+    const activeTab = document.querySelector('.tab-content:not(.hidden)');
+    if (activeTab) {
+      const dampened = dx * 0.25;
+      activeTab.style.transform = `translateX(${dampened}px)`;
+      activeTab.style.opacity = String(Math.max(0.75, 1 - Math.abs(dx) / 400));
+    }
   }, { passive: true });
 
   app.addEventListener('touchend', (e) => {
-    if (!startTime) return;
+    if (!tracking) { tracking = false; return; }
+    tracking = false;
+
     const dx = e.changedTouches[0].clientX - startX;
-    const dy = e.changedTouches[0].clientY - startY;
-    const elapsed = Date.now() - startTime;
-    startTime = 0;
-
-    // Must be a quick, clearly horizontal swipe
-    if (elapsed > 400) return;           // too slow
-    if (Math.abs(dx) < 60) return;       // too short
-    if (Math.abs(dy) > Math.abs(dx) * 0.7) return; // too vertical
-
+    const activeTab = document.querySelector('.tab-content:not(.hidden)');
     const buttons = [...document.querySelectorAll('nav button')];
     const activeIdx = buttons.findIndex(b => b.classList.contains('active'));
-    if (activeIdx < 0) return;
-
     const nextIdx = dx < 0 ? activeIdx + 1 : activeIdx - 1;
-    if (nextIdx >= 0 && nextIdx < buttons.length) {
-      buttons[nextIdx].click();
+    const canSwitch = decided && Math.abs(dx) >= 60 && nextIdx >= 0 && nextIdx < buttons.length;
+
+    if (canSwitch && activeTab) {
+      // Slide out current tab
+      const outDir = dx < 0 ? '-100%' : '100%';
+      activeTab.style.transition = 'transform 0.18s ease-out, opacity 0.18s ease-out';
+      activeTab.style.transform = `translateX(${outDir})`;
+      activeTab.style.opacity = '0';
+
+      setTimeout(() => {
+        // Clean up old tab and switch
+        activeTab.style.transition = '';
+        activeTab.style.transform = '';
+        activeTab.style.opacity = '';
+        buttons[nextIdx].click();
+
+        // Slide in new tab
+        const newTab = document.querySelector('.tab-content:not(.hidden)');
+        if (newTab) {
+          const inDir = dx < 0 ? '30%' : '-30%';
+          newTab.style.transform = `translateX(${inDir})`;
+          newTab.style.opacity = '0';
+          requestAnimationFrame(() => {
+            newTab.style.transition = 'transform 0.18s ease-out, opacity 0.18s ease-out';
+            newTab.style.transform = 'translateX(0)';
+            newTab.style.opacity = '1';
+            setTimeout(() => {
+              newTab.style.transition = '';
+              newTab.style.transform = '';
+              newTab.style.opacity = '';
+            }, 200);
+          });
+        }
+      }, 180);
+    } else if (activeTab) {
+      // Snap back — didn't meet threshold
+      activeTab.style.transition = 'transform 0.15s ease-out, opacity 0.15s ease-out';
+      activeTab.style.transform = 'translateX(0)';
+      activeTab.style.opacity = '1';
+      setTimeout(() => {
+        activeTab.style.transition = '';
+        activeTab.style.transform = '';
+        activeTab.style.opacity = '';
+      }, 160);
     }
   }, { passive: true });
 }
@@ -1785,9 +1851,9 @@ function openEditRosterModal() {
   overlay.id = 'editRosterModal';
 
   overlay.innerHTML = `
-    <div class="modal" role="dialog" aria-label="Edit Roster" aria-modal="true">
+    <div class="modal" role="dialog" aria-label="Edit Game Lineup" aria-modal="true">
       <h2>
-        <span>Edit Roster</span>
+        <span>Edit Game Lineup</span>
         <button class="close-btn" onclick="closeDynamicModal('editRosterModal')" aria-label="Close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
       </h2>
       <div class="edit-roster-tabs">
