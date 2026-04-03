@@ -195,7 +195,7 @@ suite('displayName — with and without jersey number');
   assertEqual(dn3, 'Sam #10', 'two-digit number works');
 
   const dn4 = run(ctx, "displayName('p99')");
-  assertEqual(dn4, 'p99', 'unknown pid returns pid string');
+  assertEqual(dn4, '[Unknown]', 'unknown pid returns [Unknown]');
 }
 
 suite('backup indicator — markDataDirty / hasUnsavedChanges');
@@ -211,6 +211,154 @@ suite('backup indicator — markDataDirty / hasUnsavedChanges');
   run(ctx, "markBackupDone()");
   const backed = run(ctx, "hasUnsavedChanges()");
   assertEqual(backed, false, 'after markBackupDone, no unsaved changes');
+}
+
+// ── Player Data Integrity Tests ─────────────────────────────────
+
+suite('displayName — [Unknown] fallback for missing players');
+{
+  // Set up a roster with known players
+  run(ctx, `
+    roster = {
+      positions: ['GK','CB','LB','RB','CM','LW','ST'],
+      players: {
+        p01: { name: 'Alex', number: '7', positionWeights: {} },
+        p02: { name: 'Jordan', positionWeights: {} },
+        p03: { name: 'Sam', positionWeights: {}, archived: true },
+      }
+    };
+  `);
+
+  // displayName
+  const active = run(ctx, "displayName('p01')");
+  assertEqual(active, 'Alex #7', 'active player shows name with number');
+
+  const archived = run(ctx, "displayName('p03')");
+  assertEqual(archived, 'Sam', 'archived player name still resolves');
+
+  const unknown = run(ctx, "displayName('p99')");
+  assertEqual(unknown, '[Unknown]', 'unknown pid returns [Unknown]');
+
+  const noRoster = run(ctx, "(() => { const old = roster; roster = null; const r = displayName('p01'); roster = old; return r; })()");
+  assertEqual(noRoster, '[Unknown]', 'null roster returns [Unknown]');
+}
+
+suite('getActivePlayerIds / getArchivedPlayerIds');
+{
+  run(ctx, `
+    roster = {
+      positions: ['GK','CB','LB'],
+      players: {
+        p01: { name: 'Alex', positionWeights: {} },
+        p02: { name: 'Jordan', positionWeights: {}, archived: true },
+        p03: { name: 'Sam', positionWeights: {} },
+        p04: { name: 'Casey', positionWeights: {}, archived: true },
+      }
+    };
+  `);
+
+  const active = run(ctx, "getActivePlayerIds()");
+  assertEqual(active, ['p01', 'p03'], 'getActivePlayerIds returns only non-archived');
+
+  const archived = run(ctx, "getArchivedPlayerIds()");
+  assertEqual(archived, ['p02', 'p04'], 'getArchivedPlayerIds returns only archived');
+}
+
+suite('findPlayerByName');
+{
+  run(ctx, `
+    roster = {
+      positions: ['GK','CB'],
+      players: {
+        p01: { name: 'Alex', positionWeights: {} },
+        p02: { name: 'Jordan', positionWeights: {}, archived: true },
+        p03: { name: 'Sam', positionWeights: {} },
+      }
+    };
+  `);
+
+  const matchActive = run(ctx, "findPlayerByName('alex')");
+  assertEqual(matchActive.pid, 'p01', 'finds active player case-insensitive');
+  assertEqual(matchActive.archived, false, 'active player not archived');
+
+  const matchArchived = run(ctx, "findPlayerByName('Jordan')");
+  assertEqual(matchArchived.pid, 'p02', 'finds archived player');
+  assertEqual(matchArchived.archived, true, 'archived flag is true');
+
+  const noMatch = run(ctx, "findPlayerByName('Nobody')");
+  assertEqual(noMatch, null, 'returns null for no match');
+
+  const excluded = run(ctx, "findPlayerByName('Alex', 'p01')");
+  assertEqual(excluded, null, 'excludePid skips the specified player');
+
+  const trimmed = run(ctx, "findPlayerByName('  Sam  ')");
+  assertEqual(trimmed.pid, 'p03', 'trims whitespace before matching');
+}
+
+suite('playerHasGameData');
+{
+  // Set up context with games
+  run(ctx, `
+    Storage.addTeam({ slug: 'integrity-test', name: 'Integrity Test' });
+    Storage.addSeason('integrity-test', { slug: 's1', name: 'S1', positions: ['GK','CB','LB'], preset: 'soccer-7v7' });
+    ctx = { teamSlug: 'integrity-test', seasonSlug: 's1' };
+    roster = {
+      positions: ['GK','CB','LB'],
+      players: {
+        p01: { name: 'Alex', positionWeights: {} },
+        p02: { name: 'Jordan', positionWeights: {} },
+        p03: { name: 'Sam', positionWeights: {} },
+      }
+    };
+    Storage.saveRoster('integrity-test', 's1', roster);
+    Storage.saveGame('integrity-test', 's1', {
+      gameId: '2026-04-01', date: '2026-04-01', numPeriods: 2,
+      availablePlayers: ['p01', 'p02'],
+      periodAssignments: [
+        { period: 1, assignments: { GK: 'p01', CB: 'p02', LB: 'p01' }, bench: [] },
+        { period: 2, assignments: { GK: 'p02', CB: 'p01', LB: 'p02' }, bench: [] },
+      ]
+    });
+  `);
+
+  const hasData = run(ctx, "playerHasGameData('p01')");
+  assertEqual(hasData, true, 'player in availablePlayers has game data');
+
+  const noData = run(ctx, "playerHasGameData('p03')");
+  assertEqual(noData, false, 'player not in any game has no data');
+
+  const unknownPlayer = run(ctx, "playerHasGameData('p99')");
+  assertEqual(unknownPlayer, false, 'unknown player has no data');
+}
+
+suite('archived player excluded from copy roster to new season');
+{
+  run(ctx, `
+    Storage.addTeam({ slug: 'copy-test', name: 'Copy Test' });
+    Storage.addSeason('copy-test', { slug: 's1', name: 'S1', positions: ['GK','CB','LB'] });
+    Storage.saveRoster('copy-test', 's1', {
+      positions: ['GK','CB','LB'],
+      players: {
+        p01: { name: 'Alex', positionWeights: {} },
+        p02: { name: 'Jordan', positionWeights: {}, archived: true },
+        p03: { name: 'Sam', positionWeights: {} },
+      }
+    });
+  `);
+
+  // Simulate copy roster logic (same as saveSeason does)
+  const copiedPlayers = run(ctx, `
+    const oldRoster = Storage.loadRoster('copy-test', 's1');
+    const activePlayers = {};
+    for (const [pid, p] of Object.entries(oldRoster.players)) {
+      if (!p.archived) {
+        activePlayers[pid] = JSON.parse(JSON.stringify(p));
+      }
+    }
+    Object.keys(activePlayers);
+  `);
+  assertEqual(copiedPlayers, ['p01', 'p03'], 'archived player p02 excluded from copy');
+  assert(!copiedPlayers.includes('p02'), 'archived Jordan not in copied roster');
 }
 
 export default function run_app_logic_tests() {}

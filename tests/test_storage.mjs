@@ -519,4 +519,84 @@ suite('Storage — exportTeam → importSharedTeam roundtrip');
   assertEqual(roster.players.p01.name, 'Alex', 'share roundtrip: roster');
 }
 
+suite('Storage — archived flag preserved in export/import roundtrip');
+{
+  const ctx = freshCtx();
+  run(ctx, "Storage.addTeam({ slug: 'archive-rt', name: 'Archive RT' })");
+  run(ctx, "Storage.addSeason('archive-rt', { slug: 's1', name: 'S1', preset: 'soccer-7v7', positions: ['GK','CB','LB'] })");
+  run(ctx, `Storage.saveRoster('archive-rt', 's1', {
+    positions: ['GK','CB','LB'],
+    players: {
+      p01: { name: 'Alex', positionWeights: {} },
+      p02: { name: 'Jordan', positionWeights: {}, archived: true },
+      p03: { name: 'Sam', positionWeights: { GK: 0 } },
+    }
+  })`);
+
+  // Full backup roundtrip
+  const exported = run(ctx, "Storage.exportAll()");
+  run(ctx, `Storage.importBackup(${JSON.stringify(exported)})`);
+
+  const roster = run(ctx, "Storage.loadRoster('archive-rt', 's1')");
+  assertEqual(roster.players.p01.name, 'Alex', 'active player preserved');
+  assertEqual(roster.players.p01.archived, undefined, 'active player has no archived flag');
+  assertEqual(roster.players.p02.name, 'Jordan', 'archived player name preserved');
+  assertEqual(roster.players.p02.archived, true, 'archived flag preserved after backup roundtrip');
+  assertEqual(roster.players.p03.name, 'Sam', 'third player preserved');
+  assertEqual(roster.players.p03.archived, undefined, 'non-archived player has no archived flag');
+}
+
+suite('Storage — archived flag preserved in shared team roundtrip');
+{
+  const ctx = freshCtx();
+  run(ctx, "Storage.addTeam({ slug: 'share-arch', name: 'Share Arch' })");
+  run(ctx, "Storage.addSeason('share-arch', { slug: 's1', name: 'S1', positions: ['GK','CB'] })");
+  run(ctx, `Storage.saveRoster('share-arch', 's1', {
+    positions: ['GK','CB'],
+    players: {
+      p01: { name: 'Active', positionWeights: {} },
+      p02: { name: 'Archived', positionWeights: {}, archived: true },
+    }
+  })`);
+
+  const exported = run(ctx, "Storage.exportTeam('share-arch')");
+  run(ctx, "Storage.deleteTeam('share-arch')");
+  run(ctx, `Storage.importSharedTeam(${JSON.stringify(exported)})`);
+
+  const roster = run(ctx, "Storage.loadRoster('share-arch', 's1')");
+  assertEqual(roster.players.p01.archived, undefined, 'active player still active after share roundtrip');
+  assertEqual(roster.players.p02.archived, true, 'archived flag preserved after share roundtrip');
+  assertEqual(roster.players.p02.name, 'Archived', 'archived player name preserved after share roundtrip');
+}
+
+suite('Storage — old data without archived field imports cleanly');
+{
+  const ctx = freshCtx();
+  // Simulate old v3 data with no archived flags
+  const oldData = {
+    version: 3, app: 'roster-rotation',
+    exportedAt: '2026-01-01T00:00:00Z',
+    context: null, teams: [{
+      slug: 'old-team', name: 'Old Team',
+      seasons: [{
+        slug: 's1', name: 'S1', preset: 'soccer-7v7',
+        positions: ['GK','CB','LB'],
+        roster: {
+          positions: ['GK','CB','LB'],
+          players: {
+            p01: { name: 'OldPlayer', positionWeights: {} },
+          }
+        },
+        games: [], plays: [],
+      }]
+    }],
+    standalonePlays: [],
+  };
+
+  run(ctx, `Storage.importBackup(${JSON.stringify(oldData)})`);
+  const roster = run(ctx, "Storage.loadRoster('old-team', 's1')");
+  assertEqual(roster.players.p01.name, 'OldPlayer', 'old data player name preserved');
+  assertEqual(roster.players.p01.archived, undefined, 'old data has no archived flag (treated as active)');
+}
+
 export default function run_storage_tests() {}

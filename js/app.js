@@ -63,14 +63,14 @@ const WEIGHT_CYCLE = [1, 2, 3, 0];
 
 /** Returns display name for a player: "Alex #7" if number exists, else "Alex" (plain text for toasts/share) */
 function displayName(pid) {
-  if (!roster || !roster.players[pid]) return pid;
+  if (!roster || !roster.players[pid]) return '[Unknown]';
   const p = roster.players[pid];
   return p.number ? `${p.name} #${p.number}` : p.name;
 }
 
 /** Returns HTML display name with muted jersey number span (for rendered UI) */
 function displayNameHtml(pid) {
-  if (!roster || !roster.players[pid]) return esc(pid);
+  if (!roster || !roster.players[pid]) return '<span class="player-unknown">[Unknown]</span>';
   const p = roster.players[pid];
   if (p.number) return `${esc(p.name)}<span class="player-number">#${esc(p.number)}</span>`;
   return esc(p.name);
@@ -78,10 +78,55 @@ function displayNameHtml(pid) {
 
 /** Returns SVG text content with muted tspan for jersey number */
 function displayNameSvg(pid) {
-  if (!roster || !roster.players[pid]) return esc(pid);
+  if (!roster || !roster.players[pid]) return '<tspan fill="var(--fg2)" font-style="italic">[Unknown]</tspan>';
   const p = roster.players[pid];
   if (p.number) return `${esc(p.name)}<tspan fill="var(--fg2)" font-size="9"> #${esc(p.number)}</tspan>`;
   return esc(p.name);
+}
+
+// -- Player Data Integrity Helpers ------------------------------------------
+
+/** Returns only active (non-archived) player IDs from the roster */
+function getActivePlayerIds() {
+  if (!roster) return [];
+  return Object.keys(roster.players).filter(pid => !roster.players[pid].archived);
+}
+
+/** Returns only archived player IDs from the roster */
+function getArchivedPlayerIds() {
+  if (!roster) return [];
+  return Object.keys(roster.players).filter(pid => roster.players[pid].archived);
+}
+
+/** Check if a player appears in any game data for the current season */
+function playerHasGameData(pid) {
+  if (!ctx) return false;
+  const games = Storage.loadAllGames(ctx.teamSlug, ctx.seasonSlug);
+  return games.some(g =>
+    g.availablePlayers.includes(pid) ||
+    g.periodAssignments.some(pa =>
+      Object.values(pa.assignments).includes(pid) ||
+      (pa.bench && pa.bench.includes(pid))
+    )
+  );
+}
+
+/**
+ * Find a player by name (case-insensitive, trimmed) in the roster.
+ * @param {string} name - name to search for
+ * @param {string|null} excludePid - player ID to exclude from search (for rename)
+ * @returns {{ pid: string, archived: boolean } | null}
+ */
+function findPlayerByName(name, excludePid = null) {
+  if (!roster) return null;
+  const normalized = name.trim().toLowerCase();
+  for (const [pid, p] of Object.entries(roster.players)) {
+    if (pid === excludePid) continue;
+    if (p.name.trim().toLowerCase() === normalized) {
+      return { pid, archived: !!p.archived };
+    }
+  }
+  return null;
 }
 
 // -- Position Input Sanitization -----------------------------------------
@@ -909,9 +954,16 @@ function saveSeason() {
     const lastSeason = existingSeasons[existingSeasons.length - 1];
     const oldRoster = Storage.loadRoster(ctxPickTeam, lastSeason.slug);
     if (oldRoster) {
+      // Copy only active (non-archived) players to new season
+      const activePlayers = {};
+      for (const [pid, p] of Object.entries(oldRoster.players)) {
+        if (!p.archived) {
+          activePlayers[pid] = JSON.parse(JSON.stringify(p));
+        }
+      }
       Storage.saveRoster(ctxPickTeam, slug, {
         positions,
-        players: JSON.parse(JSON.stringify(oldRoster.players)),
+        players: activePlayers,
       });
     }
   } else {
@@ -946,16 +998,17 @@ function renderRoster() {
   if (!roster) return;
   const list = document.getElementById('rosterList');
   const empty = document.getElementById('rosterEmpty');
-  const ids = Object.keys(roster.players);
+  const activeIds = getActivePlayerIds();
+  const archivedIds = getArchivedPlayerIds();
 
-  if (ids.length === 0) {
+  if (activeIds.length === 0 && archivedIds.length === 0) {
     list.innerHTML = '';
     empty.classList.remove('hidden');
     return;
   }
   empty.classList.add('hidden');
 
-  list.innerHTML = ids.map((pid, i) => {
+  let html = activeIds.map((pid, i) => {
     const p = roster.players[pid];
     const weights = p.positionWeights || {};
     const badges = Object.entries(weights).map(([pos, w]) => {
@@ -973,6 +1026,48 @@ function renderRoster() {
       </li>
     `;
   }).join('');
+
+  // Archived Players section (collapsed by default)
+  if (archivedIds.length > 0) {
+    html += `
+      <li class="archived-section-header" onclick="toggleArchivedSection()">
+        <span class="archived-chevron" id="archivedChevron">&#x25B8;</span>
+        <span class="archived-section-label">Archived Players (${archivedIds.length})</span>
+      </li>
+    `;
+    html += `<div id="archivedPlayersList" class="archived-players-list" style="display:none">`;
+    html += archivedIds.map(pid => {
+      const p = roster.players[pid];
+      return `
+        <li class="player-item archived-player-item">
+          <span class="player-name archived-name">${esc(p.name)}${p.number ? `<span class="player-number">#${esc(p.number)}</span>` : ''}</span>
+          <button class="btn btn-sm btn-outline" onclick="restorePlayer('${pid}')">Restore</button>
+        </li>
+      `;
+    }).join('');
+    html += `</div>`;
+  }
+
+  list.innerHTML = html;
+}
+
+function toggleArchivedSection() {
+  const list = document.getElementById('archivedPlayersList');
+  const chevron = document.getElementById('archivedChevron');
+  if (!list || !chevron) return;
+  const isHidden = list.style.display === 'none';
+  list.style.display = isHidden ? '' : 'none';
+  chevron.innerHTML = isHidden ? '&#x25BE;' : '&#x25B8;';
+}
+
+function restorePlayer(pid) {
+  if (!ctx || !roster || !roster.players[pid]) return;
+  delete roster.players[pid].archived;
+  Storage.saveRoster(ctx.teamSlug, ctx.seasonSlug, roster);
+  markDataDirty();
+  renderRoster();
+  renderAvailableList();
+  showToast(`${roster.players[pid].name} restored`, 'success');
 }
 
 function openPlayerModal(pid = null) {
@@ -1037,6 +1132,34 @@ function savePlayer() {
 
   const number = document.getElementById('modalPlayerNum').value.trim().slice(0, 2);
 
+  // Unique name check (case-insensitive)
+  const match = findPlayerByName(name, editingPlayerId);
+  if (match) {
+    if (match.archived) {
+      // Offer to restore the archived player
+      showModal({
+        title: 'Restore Player?',
+        message: `${name} was on this team before. Restore them instead of creating a new player?`,
+        confirmLabel: 'Restore',
+        cancelLabel: 'Cancel',
+        onConfirm: () => {
+          delete roster.players[match.pid].archived;
+          Storage.saveRoster(ctx.teamSlug, ctx.seasonSlug, roster);
+          markDataDirty();
+          renderRoster();
+          renderAvailableList();
+          closePlayerModal();
+          showToast(`${name} restored`, 'success');
+        }
+      });
+      return;
+    } else {
+      // Active player with same name — block
+      showToast('A player named ' + name + ' already exists. Use a different name (e.g., ' + name + ' B.)', 'error');
+      return;
+    }
+  }
+
   let pid = editingPlayerId;
   if (!pid) {
     const nums = Object.keys(roster.players)
@@ -1052,36 +1175,65 @@ function savePlayer() {
   };
   if (number) playerData.number = number;
 
+  // Preserve archived flag if editing an existing player (shouldn't normally happen for archived, but safety)
+  if (editingPlayerId && roster.players[editingPlayerId]?.archived) {
+    playerData.archived = true;
+  }
+
   roster.players[pid] = playerData;
 
   Storage.saveRoster(ctx.teamSlug, ctx.seasonSlug, roster);
   markDataDirty();
   renderRoster();
+  renderAvailableList();
   closePlayerModal();
 }
 
 function deletePlayer() {
   if (!ctx || !roster || !editingPlayerId) return;
   const playerName = roster.players[editingPlayerId].name;
-  showModal({
-    title: 'Remove Player',
-    message: `Remove ${playerName}?`,
-    confirmLabel: 'Remove',
-    destructive: true,
-    onConfirm: () => {
-      delete roster.players[editingPlayerId];
-      Storage.saveRoster(ctx.teamSlug, ctx.seasonSlug, roster);
-      markDataDirty();
-      renderRoster();
-      closePlayerModal();
-    }
-  });
+  const hasData = playerHasGameData(editingPlayerId);
+
+  if (hasData) {
+    // Archive instead of delete — player has game history
+    showModal({
+      title: 'Archive Player',
+      message: `Archive ${playerName}? They have game history that will be preserved. You can restore them later from the Archived Players section.`,
+      confirmLabel: 'Archive',
+      destructive: true,
+      onConfirm: () => {
+        roster.players[editingPlayerId].archived = true;
+        Storage.saveRoster(ctx.teamSlug, ctx.seasonSlug, roster);
+        markDataDirty();
+        renderRoster();
+        renderAvailableList();
+        closePlayerModal();
+        showToast(`${playerName} archived`, 'success');
+      }
+    });
+  } else {
+    // No game data — hard delete
+    showModal({
+      title: 'Remove Player',
+      message: `Remove ${playerName}?`,
+      confirmLabel: 'Remove',
+      destructive: true,
+      onConfirm: () => {
+        delete roster.players[editingPlayerId];
+        Storage.saveRoster(ctx.teamSlug, ctx.seasonSlug, roster);
+        markDataDirty();
+        renderRoster();
+        renderAvailableList();
+        closePlayerModal();
+      }
+    });
+  }
 }
 
 // -- Game Day -------------------------------------------------------
 function renderAvailableList() {
   if (!roster) return;
-  const ids = Object.keys(roster.players);
+  const ids = getActivePlayerIds();
   document.getElementById('totalCount').textContent = ids.length;
   document.getElementById('numPosLabel').textContent = roster.positions.length;
 
@@ -1091,7 +1243,8 @@ function renderAvailableList() {
       availableOrder.push({ pid, checked: true });
     }
   }
-  availableOrder = availableOrder.filter(a => roster.players[a.pid]);
+  // Filter out players no longer in roster OR archived
+  availableOrder = availableOrder.filter(a => roster.players[a.pid] && !roster.players[a.pid].archived);
   renderAvailableItems();
   renderConstraintControls();
 }
@@ -1754,7 +1907,7 @@ function renderLineup() {
       html += '<div class="period-body">';
       for (const pos of roster.positions) {
         const pid = pa.assignments[pos];
-        const nameHtml = pid && roster.players[pid] ? displayNameHtml(pid) : '?';
+        const nameHtml = pid ? displayNameHtml(pid) : '?';
         const isGK = pos === 'GK' ? ' gk' : '';
         const isSel = swapSelection && swapSelection.periodIdx === pi && swapSelection.pid === pid ? ' swap-selected' : '';
         const isHi = swapHighlight && swapHighlight.periodIdx === pi && swapHighlight.pids.includes(pid) ? ' swap-flash' : '';
@@ -1822,7 +1975,7 @@ function openEditRosterModal() {
 
   const inGame = new Set(currentPlan.availablePlayers);
   const missing = Object.entries(roster.players)
-    .filter(([pid]) => !inGame.has(pid))
+    .filter(([pid, p]) => !inGame.has(pid) && !p.archived)
     .map(([pid, p]) => ({ pid, name: displayName(pid) }));
   const inGamePlayers = currentPlan.availablePlayers
     .map(pid => ({ pid, name: displayName(pid) }));
@@ -2290,6 +2443,9 @@ function renderSeason() {
   const stats = computeStatsFromGames(statGames);
   const pids = Object.keys(stats);
   pids.sort((a, b) => {
+    const aArchived = roster.players[a]?.archived ? 1 : 0;
+    const bArchived = roster.players[b]?.archived ? 1 : 0;
+    if (aArchived !== bArchived) return aArchived - bArchived;
     const na = roster.players[a]?.name || a;
     const nb = roster.players[b]?.name || b;
     return na.localeCompare(nb);
@@ -2405,10 +2561,13 @@ function renderSeasonOverview(games, stats, pids) {
     const color = devFromAvg <= 0.05 ? '#00e676' : devFromAvg <= 0.10 ? '#fdd835' : '#ff5252';
     const w = Math.max((ratio / maxRatio) * barMaxW, 2);
     const y = (i + 1) * rowH + 2;
+    const isArchived = roster.players[pid]?.archived;
+    const nameOpacity = isArchived ? ' opacity="0.5"' : '';
+    const archivedTag = isArchived ? '<tspan fill="var(--fg2)" font-size="8" font-style="italic"> [A]</tspan>' : '';
 
-    html += `<text x="${nameW}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="11" text-anchor="end">${displayNameSvg(pid)}</text>`;
-    html += `<rect x="${barX}" y="${y + 4}" width="${w}" height="${rowH - 10}" rx="3" fill="${color}" opacity="0.85"/>`;
-    html += `<text x="${barX + w + 5}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="10" font-family="'JetBrains Mono',monospace">${pct}%</text>`;
+    html += `<text x="${nameW}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="11" text-anchor="end"${nameOpacity}>${displayNameSvg(pid)}${archivedTag}</text>`;
+    html += `<rect x="${barX}" y="${y + 4}" width="${w}" height="${rowH - 10}" rx="3" fill="${color}" opacity="${isArchived ? '0.4' : '0.85'}"/>`;
+    html += `<text x="${barX + w + 5}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="10" font-family="'JetBrains Mono',monospace"${nameOpacity}>${pct}%</text>`;
   }
   html += '</svg></div>';
 
@@ -2421,7 +2580,7 @@ function renderSeasonGames(games) {
 
   // Availability dot chart
   if (games.length >= 2) {
-    const rosterSize = roster ? Object.keys(roster.players).length : 0;
+    const rosterSize = roster ? getActivePlayerIds().length : 0;
     const dotSpacing = Math.min(36, Math.max(20, 300 / games.length));
     const padL = 24, padR = 8, padT = 18, padB = 18;
     const chartW = padL + games.length * dotSpacing + padR;
@@ -2546,7 +2705,10 @@ function renderSeasonPlayers(games, stats, pids) {
     const s = stats[pid];
     const avg = s.gamesAttended > 0 ? (s.totalPeriodsPlayed / s.gamesAttended).toFixed(1) : '0';
     const goals = seasonGoals[pid] || 0;
-    html += `<tr><td>${displayNameHtml(pid)}</td><td>${s.gamesAttended}</td><td>${avg}</td>`;
+    const isArchived = roster.players[pid]?.archived;
+    const rowClass = isArchived ? ' class="archived-row"' : '';
+    const archivedLabel = isArchived ? ' <span class="archived-badge">archived</span>' : '';
+    html += `<tr${rowClass}><td>${displayNameHtml(pid)}${archivedLabel}</td><td>${s.gamesAttended}</td><td>${avg}</td>`;
     if (anyGoals) html += `<td style="color:${goals > 0 ? 'var(--accent)' : 'var(--fg2)'};font-weight:${goals > 0 ? '700' : '400'}">${goals}</td>`;
     for (const pos of roster.positions) {
       html += `<td>${s.periodsByPosition[pos] || 0}</td>`;
@@ -2596,14 +2758,17 @@ function renderSeasonPlayers(games, stats, pids) {
     const total = s.totalPeriodsPlayed || 1;
     const y = i * rowH + 2;
     let xOff = barX;
+    const isArchived = roster.players[pid]?.archived;
+    const nameOpacity = isArchived ? ' opacity="0.5"' : '';
+    const archivedTag = isArchived ? '<tspan fill="var(--fg2)" font-size="8" font-style="italic"> [A]</tspan>' : '';
 
-    html += `<text x="${nameW}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="11" text-anchor="end">${displayNameSvg(pid)}</text>`;
+    html += `<text x="${nameW}" y="${y + rowH * 0.65}" fill="var(--fg2)" font-size="11" text-anchor="end"${nameOpacity}>${displayNameSvg(pid)}${archivedTag}</text>`;
 
     for (const pos of roster.positions) {
       const count = s.periodsByPosition[pos] || 0;
       if (count === 0) continue;
       const w = (count / total) * barMaxW;
-      html += `<rect x="${xOff}" y="${y + 4}" width="${w}" height="${rowH - 10}" fill="${posColors[pos]}" opacity="0.8"><title>${pos}: ${count} (${Math.round(count / total * 100)}%)</title></rect>`;
+      html += `<rect x="${xOff}" y="${y + 4}" width="${w}" height="${rowH - 10}" fill="${posColors[pos]}" opacity="${isArchived ? '0.4' : '0.8'}"><title>${pos}: ${count} (${Math.round(count / total * 100)}%)</title></rect>`;
       xOff += w;
     }
   }
