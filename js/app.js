@@ -58,6 +58,51 @@ let ctxPickSeason = null;
 
 const WEIGHT_LABELS = { 1: 'Normal', 2: 'Prefer', 3: 'Strong', 0: 'Never' };
 const WEIGHT_CYCLE = [1, 2, 3, 0];
+const WEIGHT_CLASSES = { 0: 'exclude', 2: 'prefer', 3: 'strong' };
+
+// -- Fairness Color System (colorblind-aware) ----------------------------
+
+/** Returns the three fairness colors based on colorblind setting */
+function fairnessColors() {
+  const s = loadSettings();
+  if (s.colorblind) return { good: '#42a5f5', warn: '#ff9800', bad: '#e53935' };
+  return { good: '#00e676', warn: '#fdd835', bad: '#ff5252' };
+}
+
+/** Returns fairness color labels for chart subtitles */
+function fairnessLabels() {
+  const s = loadSettings();
+  if (s.colorblind) return { good: 'blue', warn: 'orange', bad: 'red' };
+  return { good: 'green', warn: 'yellow', bad: 'red' };
+}
+
+/** Picks good/warn/bad color based on deviation from average */
+function fairnessBarColor(devFromAvg) {
+  const c = fairnessColors();
+  return devFromAvg <= 0.05 ? c.good : devFromAvg <= 0.10 ? c.warn : c.bad;
+}
+
+/** Picks good/warn/bad color based on fairness spread */
+function fairnessSpreadColor(spread) {
+  const c = fairnessColors();
+  return spread <= 1 ? c.good : spread <= 2 ? c.warn : c.bad;
+}
+
+/** Returns W/L/D color */
+function wldColor(result) {
+  const c = fairnessColors();
+  if (result === 'W') return c.good;
+  if (result === 'L') return c.bad;
+  return c.warn;
+}
+
+/** Returns goal differential color */
+function diffColor(diff) {
+  const c = fairnessColors();
+  if (diff > 0) return c.good;
+  if (diff < 0) return c.bad;
+  return 'var(--fg2)';
+}
 
 // -- Display Name Helper (jersey number + name) --------------------------
 
@@ -257,6 +302,7 @@ function init() {
   // Apply theme before anything renders
   const settings = loadSettings();
   applyTheme(settings.theme);
+  applyColorblind(settings.colorblind);
 
   // Listen for OS theme changes when using "System" setting
   if (window.matchMedia) {
@@ -562,8 +608,11 @@ function showWelcome() {
   gdEmpty.style.display = '';
   // Clear Game Day state
   document.getElementById('availableList').innerHTML = '';
+  const rpl = document.getElementById('rosterPickList');
+  if (rpl) rpl.innerHTML = '';
   document.getElementById('availCount').textContent = '0';
-  document.getElementById('totalCount').textContent = '0';
+  const rc = document.getElementById('rosterCount');
+  if (rc) rc.textContent = '0';
   document.getElementById('generateBtn').disabled = true;
   const cc = document.getElementById('constraintControls');
   if (cc) { cc.innerHTML = ''; cc.classList.add('hidden'); }
@@ -594,7 +643,7 @@ function switchTab(name, btn) {
 
 const TAB_HINTS = {
   roster: '\u2022 Tap <strong>+ Add</strong> to add players.<br>\u2022 Tap any player to set position preferences.',
-  gameday: '\u2022 Set the date, format, and check who\u2019s available.<br>\u2022 Drag to reorder \u2014 first checked start (if enabled).<br>\u2022 Tap a name to lock a position.<br>\u2022 Then tap <strong>Generate Lineup</strong>.',
+  gameday: '\u2022 Tap players on the left to add them to the game.<br>\u2022 Drag to reorder \u2014 first in list start (if enabled).<br>\u2022 Tap a name to lock a position.<br>\u2022 Then tap <strong>Generate Lineup</strong>.',
   lineup: '\u2022 Tap two players in the same period to <strong>swap</strong>.<br>\u2022 <strong>Edit</strong> in-game lineup availability and rebalance.<br>\u2022 Use <strong>+/\u2212</strong> to track goals.<br>\u2022 Check <strong>Scrimmage</strong> to exclude from season stats.',
   season: '\u2022 Select <strong>tabs</strong> to explore season stats.',
   field: '\u2022 Drag dots to arrange formations.<br>\u2022 Use the <strong>pencil</strong> and <strong>box</strong> to draw routes and zones.<br>\u2022 Toggle on/off player labels (<strong>Aa</strong>) and defense (<strong>DEF</strong>).<br>\u2022 Create and save plays for quick reuse.',
@@ -1012,8 +1061,9 @@ function renderRoster() {
     const p = roster.players[pid];
     const weights = p.positionWeights || {};
     const badges = Object.entries(weights).map(([pos, w]) => {
-      if (w === 0) return `<span class="badge exclude">${pos} x</span>`;
-      if (w > 1) return `<span class="badge prefer">${pos} &#x2191;${w}</span>`;
+      if (w === 0) return `<span class="badge exclude">${pos}</span>`;
+      if (w === 2) return `<span class="badge prefer">${pos}</span>`;
+      if (w === 3) return `<span class="badge strong">${pos}</span>`;
       return '';
     }).filter(Boolean).join('');
 
@@ -1106,7 +1156,7 @@ function renderWeightGrid() {
   grid.innerHTML = roster.positions.map(pos => {
     const w = modalWeights[pos] ?? 1;
     const label = WEIGHT_LABELS[w] || `x${w}`;
-    const cls = w === 0 ? 'exclude' : w > 1 ? 'prefer' : '';
+    const cls = WEIGHT_CLASSES[w] || '';
     return `
       <div class="weight-item" onclick="cycleWeight('${pos}')">
         <div class="pos-label">${pos}</div>
@@ -1234,7 +1284,6 @@ function deletePlayer() {
 function renderAvailableList() {
   if (!roster) return;
   const ids = getActivePlayerIds();
-  document.getElementById('totalCount').textContent = ids.length;
   document.getElementById('numPosLabel').textContent = roster.positions.length;
 
   const existing = new Set(availableOrder.map(a => a.pid));
@@ -1251,82 +1300,107 @@ function renderAvailableList() {
 
 function renderAvailableItems() {
   if (!roster) return;
-  const list = document.getElementById('availableList');
   const numPositions = roster.positions.length;
-  const checkedCount = availableOrder.filter(a => a.checked).length;
-  let starterIdx = 0;
+  const selected = availableOrder.filter(a => a.checked);
+  const unselectedPids = availableOrder.filter(a => !a.checked).map(a => a.pid);
 
-  document.getElementById('availCount').textContent = checkedCount;
+  // Sort unselected alphabetically by name
+  unselectedPids.sort((a, b) => {
+    const na = roster.players[a]?.name || '';
+    const nb = roster.players[b]?.name || '';
+    return na.localeCompare(nb);
+  });
+
+  const checkedCount = selected.length;
+
+  // Update counts
+  document.getElementById('rosterCount').textContent = unselectedPids.length;
+  document.getElementById('availCount').textContent = `${checkedCount} / ${checkedCount + unselectedPids.length}`;
   document.getElementById('generateBtn').disabled = checkedCount < numPositions;
 
-  // Positions already locked (can't double-lock)
-  const lockedPositions = new Set(Object.values(gameLocks));
-
-  // Pin hint — always visible under header
-  const lockCount = Object.keys(gameLocks).length;
-  let pinHintHtml = '';
-  if (lockCount > 0) {
-    const lockList = Object.entries(gameLocks).map(([pid, pos]) => {
-      const name = displayName(pid);
-      return `${name}\u00a0=\u00a0${pos}`;
-    }).join(', ');
-    pinHintHtml = `<div class="pin-hint">Pinned: ${lockList}</div>`;
+  // ── Left column: Roster (unselected) ──
+  const leftList = document.getElementById('rosterPickList');
+  if (unselectedPids.length === 0) {
+    leftList.innerHTML = '<li class="pickup-empty">All players selected</li>';
   } else {
-    pinHintHtml = '<div class="pin-hint">Tap a name to pin to a position</div>';
+    leftList.innerHTML = unselectedPids.map(pid => {
+      const p = roster.players[pid];
+      const numStr = p.number ? `<span class="player-number">#${esc(p.number)}</span>` : '';
+      return `<li class="pickup-item" onclick="selectPlayer('${pid}')">${esc(p.name)}${numStr}</li>`;
+    }).join('');
   }
 
-  let itemsHtml = availableOrder.map((a, idx) => {
-    const p = roster.players[a.pid];
-    const isStarter = a.checked && starterMode && starterIdx < numPositions;
-    if (a.checked) starterIdx++;
+  // ── Right column: Available Players (selected) ──
+  const rightList = document.getElementById('availableList');
+  const lockedPositions = new Set(Object.values(gameLocks));
+  let starterIdx = 0;
 
-    const lock = gameLocks[a.pid];
-    const lockBadge = lock ? `<span class="lock-badge" onclick="event.stopPropagation();removeLock('${a.pid}')" title="Tap to unpin">${lock} <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></span>` : '';
-    const isPickerOpen = lockPickerOpen === a.pid && a.checked;
+  // Pin hint — always static
+  const pinHintHtml = checkedCount > 0 ? '<div class="pin-hint">Tap a name to pin to a position</div>' : '';
 
-    let picker = '';
-    if (isPickerOpen) {
-      const weights = p.positionWeights || {};
-      const chips = roster.positions.map(pos => {
-        const w = weights[pos] ?? 1.0;
-        const disabled = w === 0 || (lockedPositions.has(pos) && gameLocks[a.pid] !== pos);
-        const active = gameLocks[a.pid] === pos;
-        const cls = active ? 'lock-chip active' : (disabled ? 'lock-chip disabled' : 'lock-chip');
-        const onclick = disabled ? '' : `onclick="event.stopPropagation();setLock('${a.pid}','${pos}')"`;
-        return `<button class="${cls}" ${onclick}>${pos}</button>`;
-      }).join('');
-      picker = `<div class="lock-picker">${chips}</div>`;
+  if (checkedCount === 0) {
+    rightList.innerHTML = '<li class="pickup-empty">Tap players to add</li>';
+  } else {
+    // Build items using the order index within the full availableOrder
+    let itemsHtml = '';
+    let rightIdx = 0;
+    for (let i = 0; i < availableOrder.length; i++) {
+      const a = availableOrder[i];
+      if (!a.checked) continue;
+
+      const p = roster.players[a.pid];
+      const isStarter = starterMode && starterIdx < numPositions;
+      starterIdx++;
+
+      const lock = gameLocks[a.pid];
+      const lockBadge = lock ? `<span class="lock-badge" onclick="event.stopPropagation();removeLock('${a.pid}')" title="Tap to unpin">${lock} <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></span>` : '';
+      const isPickerOpen = lockPickerOpen === a.pid;
+
+      let picker = '';
+      if (isPickerOpen) {
+        const weights = p.positionWeights || {};
+        const chips = roster.positions.map(pos => {
+          const w = weights[pos] ?? 1.0;
+          const disabled = w === 0 || (lockedPositions.has(pos) && gameLocks[a.pid] !== pos);
+          const active = gameLocks[a.pid] === pos;
+          const cls = active ? 'lock-chip active' : (disabled ? 'lock-chip disabled' : 'lock-chip');
+          const onclick = disabled ? '' : `onclick="event.stopPropagation();setLock('${a.pid}','${pos}')"`;
+          return `<button class="${cls}" ${onclick}>${pos}</button>`;
+        }).join('');
+        picker = `<div class="lock-picker">${chips}</div>`;
+      }
+
+      const isDragging = availDragState && availDragState.fromIdx === i ? ' dragging' : '';
+      const isDropTarget = availDropIdx === i ? ' drag-over' : '';
+      const isFlash = availReorderFlash === i ? ' swap-flash' : '';
+
+      itemsHtml += `
+        <li class="available-item${isPickerOpen ? ' picker-open' : ''}${isDragging}${isDropTarget}${isFlash}" data-idx="${i}">
+          <button class="pickup-remove" onclick="event.stopPropagation();deselectPlayer('${a.pid}')" aria-label="Remove ${esc(p.name)}">&times;</button>
+          <span class="player-name" onclick="toggleLockPicker('${a.pid}')">${displayNameHtml(a.pid)}</span>
+          ${lockBadge}
+          ${isStarter ? '<span class="starter-badge">START</span>' : ''}
+          <div class="drag-handle" aria-label="Drag to reorder">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
+          </div>
+          ${picker}
+        </li>
+      `;
+      rightIdx++;
     }
 
-    const isDragging = availDragState && availDragState.fromIdx === idx ? ' dragging' : '';
-    const isDropTarget = availDropIdx === idx ? ' drag-over' : '';
-    const isFlash = availReorderFlash === idx ? ' swap-flash' : '';
+    rightList.innerHTML = pinHintHtml + itemsHtml;
+  }
 
-    return `
-      <li class="available-item${isPickerOpen ? ' picker-open' : ''}${isDragging}${isDropTarget}${isFlash}" data-idx="${idx}">
-        <div class="check ${a.checked ? 'checked' : ''}" onclick="toggleAvailable(${idx})" role="checkbox" aria-checked="${a.checked}" aria-label="Toggle ${esc(p.name)}"></div>
-        <span class="player-name" onclick="toggleLockPicker('${a.pid}')">${displayNameHtml(a.pid)}</span>
-        ${lockBadge}
-        ${isStarter && !lock ? '<span class="starter-badge">START</span>' : ''}
-        <div class="drag-handle" aria-label="Drag to reorder">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
-        </div>
-        ${picker}
-      </li>
-    `;
-  }).join('');
-
-  list.innerHTML = pinHintHtml + itemsHtml;
-
-  // Attach drag handlers to all drag handles
-  list.querySelectorAll('.drag-handle').forEach(handle => {
+  // Attach drag handlers to all drag handles in right column
+  rightList.querySelectorAll('.drag-handle').forEach(handle => {
     handle.addEventListener('pointerdown', onAvailDragStart, { passive: false });
   });
 }
 
 function toggleLockPicker(pid) {
-  const entry = availableOrder.find(a => a.pid === pid);
-  if (!entry || !entry.checked) return;
+  const entry = availableOrder.find(a => a.pid === pid && a.checked);
+  if (!entry) return;
   lockPickerOpen = lockPickerOpen === pid ? null : pid;
   renderAvailableItems();
 }
@@ -1349,16 +1423,49 @@ function removeLock(pid) {
   renderConstraintControls();
 }
 
-function toggleAvailable(idx) {
-  availableOrder[idx].checked = !availableOrder[idx].checked;
-  // Clear lock if unchecking
-  if (!availableOrder[idx].checked) {
-    const hadLock = !!gameLocks[availableOrder[idx].pid];
-    delete gameLocks[availableOrder[idx].pid];
-    if (lockPickerOpen === availableOrder[idx].pid) lockPickerOpen = null;
-    if (hadLock) renderConstraintControls();
+/** Select a player from the left column → moves to end of right column */
+function selectPlayer(pid) {
+  const entry = availableOrder.find(a => a.pid === pid);
+  if (!entry) return;
+  entry.checked = true;
+  // Move to end so newly selected appear at bottom of right column
+  availableOrder = availableOrder.filter(a => a.pid !== pid);
+  availableOrder.push(entry);
+  renderAvailableItems();
+}
+
+/** Deselect a player from the right column → moves back to left column */
+function deselectPlayer(pid) {
+  const entry = availableOrder.find(a => a.pid === pid);
+  if (!entry) return;
+  entry.checked = false;
+  // Clear lock if any
+  if (gameLocks[pid]) {
+    delete gameLocks[pid];
+    renderConstraintControls();
+  }
+  if (lockPickerOpen === pid) lockPickerOpen = null;
+  renderAvailableItems();
+}
+
+/** Select all roster players */
+function selectAllPlayers() {
+  for (const a of availableOrder) {
+    a.checked = true;
   }
   renderAvailableItems();
+}
+
+/** Clear all selections — move everyone back to left column */
+function clearAllPlayers() {
+  for (const a of availableOrder) {
+    a.checked = false;
+  }
+  // Clear all locks
+  gameLocks = {};
+  lockPickerOpen = null;
+  renderAvailableItems();
+  renderConstraintControls();
 }
 
 // -- Drag-to-Reorder ------------------------------------------------
@@ -1860,6 +1967,7 @@ function renderLineup() {
       <div class="lineup-actions">
         <button class="btn btn-sm btn-outline" onclick="openEditRosterModal()">Edit</button>
         <button class="btn btn-sm btn-outline" onclick="shareLineup()">Share</button>
+        <button class="btn btn-sm btn-outline" onclick="printLineup()">Print</button>
         <button class="btn btn-sm btn-outline" onclick="deleteCurrentGame()">Delete</button>
       </div>
     </div>
@@ -2401,6 +2509,122 @@ async function shareLineup() {
   await shareOrDownload(blob, `lineup-${gid}.txt`, 'Lineup shared');
 }
 
+function printLineup() {
+  if (!currentPlan || !roster) return;
+
+  const plan = currentPlan;
+  const periodLabel = getPeriodLabel(plan.numPeriods, true);
+  const team = teams.find(t => t.slug === ctx?.teamSlug);
+  const teamName = team ? team.name : '';
+  const gnLabel = getGameNumLabel(plan);
+  const gameLabel = plan.label ? ` \u2014 ${plan.label}` : '';
+  const summary = getPlayerSummary(plan);
+
+  // Build period columns
+  const numPeriods = plan.periodAssignments.length;
+  const positions = roster.positions;
+
+  // Period header row
+  let periodHeaders = '';
+  for (let pi = 0; pi < numPeriods; pi++) {
+    const pa = plan.periodAssignments[pi];
+    periodHeaders += `<th>${periodLabel}${pa.period}</th>`;
+  }
+
+  // Position rows: one row per position, cells = # + name for that period
+  let positionRows = '';
+  for (const pos of positions) {
+    let cells = `<td class="pos-cell">${esc(pos)}</td>`;
+    for (let pi = 0; pi < numPeriods; pi++) {
+      const pa = plan.periodAssignments[pi];
+      const pid = pa.assignments[pos];
+      if (pid && roster.players[pid]) {
+        const p = roster.players[pid];
+        const num = p.number ? `<span class="num">${esc(p.number)}</span>` : '<span class="num"></span>';
+        cells += `<td>${num}${esc(p.name)}</td>`;
+      } else {
+        cells += '<td>\u2014</td>';
+      }
+    }
+    positionRows += `<tr>${cells}</tr>`;
+  }
+
+  // Bench row
+  let benchCells = '<td class="pos-cell">Bench</td>';
+  for (let pi = 0; pi < numPeriods; pi++) {
+    const pa = plan.periodAssignments[pi];
+    const benchNames = (pa.bench || []).map(pid => {
+      const p = roster.players[pid];
+      return p ? esc(p.name) : '?';
+    }).join(', ');
+    benchCells += `<td class="bench-cell">${benchNames || '\u2014'}</td>`;
+  }
+
+  // Player summary table
+  let summaryRows = '';
+  for (const pid of plan.availablePlayers) {
+    const s = summary[pid];
+    const p = roster.players[pid];
+    if (!p) continue;
+    const num = p.number || '';
+    summaryRows += `<tr><td>${esc(p.name)}</td><td class="num-col">${esc(num)}</td><td>${s.periodsPlayed}/${plan.numPeriods}</td><td>${s.positions.join(', ')}</td></tr>`;
+  }
+
+  const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Lineup - ${esc(teamName)} ${plan.date}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Segoe UI', sans-serif; font-size: 11px; color: #000; padding: 12px; }
+  .header { margin-bottom: 10px; }
+  .header h1 { font-size: 16px; font-weight: 700; margin-bottom: 2px; }
+  .header .sub { font-size: 11px; color: #555; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+  th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; font-size: 11px; }
+  th { background: #f0f0f0; font-weight: 700; text-align: center; }
+  .pos-cell { font-weight: 700; background: #f8f8f8; width: 40px; text-align: center; }
+  .bench-cell { font-size: 10px; color: #555; }
+  .num { display: inline-block; width: 20px; font-weight: 600; color: #888; font-size: 10px; text-align: right; margin-right: 4px; }
+  .summary { margin-top: 8px; }
+  .summary th { text-align: left; }
+  .num-col { text-align: center; width: 28px; }
+  @media print {
+    body { padding: 0; }
+    @page { margin: 10mm; size: auto; }
+  }
+</style>
+</head><body>
+<div class="header">
+  <h1>${esc(teamName)}</h1>
+  <div class="sub">${plan.date}${gnLabel}${esc(gameLabel)} \u2014 ${plan.availablePlayers.length} players, ${plan.numPeriods} ${getPeriodLabelPlural(plan.numPeriods)}</div>
+</div>
+
+<table>
+  <thead><tr><th></th>${periodHeaders}</tr></thead>
+  <tbody>
+    ${positionRows}
+    <tr class="bench-row">${benchCells}</tr>
+  </tbody>
+</table>
+
+<table class="summary">
+  <thead><tr><th>Player</th><th>#</th><th>Played</th><th>Positions</th></tr></thead>
+  <tbody>${summaryRows}</tbody>
+</table>
+
+<script>window.onload = function() { window.print(); }</script>
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (win) {
+    win.document.write(html);
+    win.document.close();
+  } else {
+    showToast('Pop-up blocked — allow pop-ups for this site', 'error');
+  }
+}
+
 // -- Season Summary -------------------------------------------------
 // -- Position colors for charts (deterministic from position list) --
 function getPositionColors(positions) {
@@ -2518,8 +2742,8 @@ function renderSeasonOverview(games, stats, pids) {
   if (hasAnyScore) {
     const diff = totalFor - totalAgainst;
     const diffStr = diff > 0 ? `+${diff}` : `${diff}`;
-    const diffColor = diff > 0 ? '#00e676' : diff < 0 ? '#ff5252' : 'var(--fg2)';
-    html += `<div class="season-extra-stat"><span class="season-extra-num">${totalFor}\u2013${totalAgainst}</span><span class="season-extra-label" style="color:${diffColor}">${diffStr} GD</span></div>`;
+    const gdColor = diffColor(diff);
+    html += `<div class="season-extra-stat"><span class="season-extra-num">${totalFor}\u2013${totalAgainst}</span><span class="season-extra-label" style="color:${gdColor}">${diffStr} GD</span></div>`;
     html += `<div class="season-extra-stat"><span class="season-extra-num">${shutouts}</span><span class="season-extra-label">Shutout${shutouts !== 1 ? 's' : ''}</span></div>`;
   }
   html += '</div>';
@@ -2540,8 +2764,10 @@ function renderSeasonOverview(games, stats, pids) {
   const svgH = totalRows * rowH + 4;
   const avgBarX = barX + (teamAvg / maxRatio) * barMaxW;
 
+  const fc = fairnessColors();
+  const fl = fairnessLabels();
   html += '<div class="card"><div class="card-title">Playing Time</div>';
-  html += '<div class="chart-legend"><span class="chart-legend-item"><span class="chart-legend-swatch" style="background:#00e676"></span>Even</span><span class="chart-legend-item"><span class="chart-legend-swatch" style="background:#fdd835"></span>Close</span><span class="chart-legend-item"><span class="chart-legend-swatch" style="background:#ff5252"></span>Off</span></div>';
+  html += `<div class="chart-legend"><span class="chart-legend-item"><span class="chart-legend-swatch" style="background:${fc.good}"></span>Even</span><span class="chart-legend-item"><span class="chart-legend-swatch" style="background:${fc.warn}"></span>Close</span><span class="chart-legend-item"><span class="chart-legend-swatch" style="background:${fc.bad}"></span>Off</span></div>`;
   html += '<div class="chart-subtitle">Naturally evens out with more games</div>';
   html += `<svg width="100%" viewBox="0 0 ${svgW} ${svgH}" style="display:block;font-family:'DM Sans',sans-serif">`;
 
@@ -2558,7 +2784,7 @@ function renderSeasonOverview(games, stats, pids) {
     const ratio = ratios[i];
     const pct = Math.round(ratio * 100);
     const devFromAvg = teamAvg > 0 ? Math.abs(ratio - teamAvg) / teamAvg : 0;
-    const color = devFromAvg <= 0.05 ? '#00e676' : devFromAvg <= 0.10 ? '#fdd835' : '#ff5252';
+    const color = fairnessBarColor(devFromAvg);
     const w = Math.max((ratio / maxRatio) * barMaxW, 2);
     const y = (i + 1) * rowH + 2;
     const isArchived = roster.players[pid]?.archived;
@@ -2577,6 +2803,8 @@ function renderSeasonOverview(games, stats, pids) {
 // ── Season Games sub-tab ──
 function renderSeasonGames(games) {
   let html = '';
+  const fc = fairnessColors();
+  const fl = fairnessLabels();
 
   // Availability dot chart
   if (games.length >= 2) {
@@ -2595,7 +2823,7 @@ function renderSeasonGames(games) {
     const yForCount = (c) => padT + plotH - ((c - minCount) / yRange) * plotH;
 
     html += '<div class="card"><div class="card-title">Availability</div>';
-    html += '<div class="chart-subtitle">Color = fairness spread (green \u2264 1, yellow \u2264 2, red \u2265 3)</div>';
+    html += `<div class="chart-subtitle">Color = fairness spread (${fl.good} \u2264 1, ${fl.warn} \u2264 2, ${fl.bad} \u2265 3)</div>`;
     html += `<svg width="100%" viewBox="0 0 ${chartW} ${chartH}" style="display:block;font-family:'DM Sans',sans-serif">`;
 
     // Y-axis labels
@@ -2624,7 +2852,7 @@ function renderSeasonGames(games) {
       const y = yForCount(counts[i]);
       const result = games[i].exhibition ? 'S' : getGameResult(games[i]);
       const spread = gameFairnessSpread(games[i]);
-      const dotColor = result ? (spread <= 1 ? '#00e676' : spread <= 2 ? '#fdd835' : '#ff5252') : 'var(--fg2)';
+      const dotColor = result ? fairnessSpreadColor(spread) : 'var(--fg2)';
       html += `<circle cx="${x}" cy="${y}" r="${dotR}" fill="${dotColor}"/>`;
       if (result) {
         html += `<text x="${x}" y="${y + 3}" fill="#000" font-size="8" font-weight="700" text-anchor="middle" font-family="'JetBrains Mono',monospace">${result}</text>`;
@@ -2646,7 +2874,7 @@ function renderSeasonGames(games) {
   for (const g of games.slice().reverse()) {
     const pLabel = getPeriodLabelPlural(g.numPeriods);
     const spread = gameFairnessSpread(g);
-    const fsColor = spread <= 1 ? '#00e676' : spread <= 2 ? '#fdd835' : '#ff5252';
+    const fsColor = fairnessSpreadColor(spread);
     const gidEsc = esc(g.gameId).replace(/'/g, "\\'");
     const gnLabel = getGameNumLabel(g);
     const gLabel = g.label ? ` \u2014 ${esc(g.label)}` : '';
@@ -2654,8 +2882,8 @@ function renderSeasonGames(games) {
     const scoreStr = hasScoreData(g) ? `${getTotalTeamGoals(g)}-${getTotalOppGoals(g)}` : '';
     let wldHtml = '';
     if (result) {
-      const wldColor = result === 'W' ? '#00e676' : result === 'L' ? '#ff5252' : '#fdd835';
-      wldHtml = `<span class="wld-pill" style="color:${wldColor};border-color:${wldColor}">${result}</span>`;
+      const wc = wldColor(result);
+      wldHtml = `<span class="wld-pill" style="color:${wc};border-color:${wc}">${result}</span>`;
     }
     if (g.exhibition) {
       wldHtml = `<span class="wld-pill" style="color:var(--fg2);border-color:var(--border)">SCR</span>`;
@@ -2814,8 +3042,8 @@ function openGamePicker() {
     const result = g.exhibition ? null : getGameResult(g);
     let wldHtml = '';
     if (result) {
-      const wldColor = result === 'W' ? '#00e676' : result === 'L' ? '#ff5252' : '#fdd835';
-      wldHtml = `<span class="wld-pill" style="color:${wldColor};border-color:${wldColor}">${result}</span>`;
+      const wc = wldColor(result);
+      wldHtml = `<span class="wld-pill" style="color:${wc};border-color:${wc}">${result}</span>`;
     }
     if (g.exhibition) {
       wldHtml = `<span class="wld-pill" style="color:var(--fg2);border-color:var(--border)">SCR</span>`;
@@ -3341,6 +3569,7 @@ function loadSettings() {
   const raw = localStorage.getItem('rot_settings');
   const defaults = {
     theme: 'dark',
+    colorblind: false,
     defaultPeriods: 4,
     defaultStarterMode: true,
     defaultSport: 'soccer',
@@ -3395,6 +3624,10 @@ function openSettings() {
             <button class="tri-opt${settings.theme === 'light' ? ' active' : ''}" onclick="setTheme('light')">Light</button>
             <button class="tri-opt${settings.theme === 'system' ? ' active' : ''}" onclick="setTheme('system')">System</button>
           </div>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Colorblind mode</span>
+          <div class="toggle${settings.colorblind ? ' on' : ''}" id="settingsColorblindToggle" onclick="toggleColorblind()" role="switch" aria-checked="${settings.colorblind}" aria-label="Colorblind mode"></div>
         </div>
       </div>
 
@@ -3461,6 +3694,18 @@ function openSettings() {
           <button class="btn btn-sm btn-outline" onclick="dismissAllHints()">Dismiss All</button>
         </div>
       </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Links</div>
+        <div class="settings-row">
+          <span class="settings-label">Source code</span>
+          <a href="https://github.com/greenwoodms06/roster-rotation" target="_blank" rel="noopener" class="settings-link" onclick="closeSettings()">GitHub <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Privacy policy</span>
+          <a href="privacy.html" target="_blank" rel="noopener" class="settings-link" onclick="closeSettings()">View <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>
+        </div>
+      </div>
     </div>
   `;
   document.body.appendChild(overlay);
@@ -3484,6 +3729,27 @@ function setTheme(theme) {
     labels.forEach((l, i) => {
       if (l === theme) toggle.children[i].classList.add('active');
     });
+  }
+}
+
+function toggleColorblind() {
+  const settings = loadSettings();
+  settings.colorblind = !settings.colorblind;
+  saveSettings(settings);
+  applyColorblind(settings.colorblind);
+  const toggle = document.getElementById('settingsColorblindToggle');
+  if (toggle) toggle.classList.toggle('on', settings.colorblind);
+  // Re-render season charts if they're visible
+  renderSeason();
+}
+
+function applyColorblind(enabled) {
+  const html = document.documentElement;
+  if (!html || !html.classList) return;
+  if (enabled) {
+    html.classList.add('colorblind');
+  } else {
+    html.classList.remove('colorblind');
   }
 }
 
@@ -3729,38 +3995,76 @@ function applyUpdate() {
   closeUpdateBanner();
 }
 
-// -- Mobile Keyboard Fix -----------------------------------------------
-if (window.visualViewport) {
-  const adjustForKeyboard = () => {
-    const overlays = document.querySelectorAll('.modal-overlay:not(.hidden)');
-    if (overlays.length === 0) return;
+// -- PWA Install Prompt ------------------------------------------------
+let _deferredInstallPrompt = null;
 
-    const vv = window.visualViewport;
-    const keyboardOpen = vv.height < window.innerHeight - 100;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  _deferredInstallPrompt = e;
 
-    overlays.forEach(overlay => {
-      if (keyboardOpen) {
-        overlay.style.top = vv.offsetTop + 'px';
-        overlay.style.height = vv.height + 'px';
-        overlay.style.bottom = 'auto';
-      } else {
-        overlay.style.top = '';
-        overlay.style.height = '';
-        overlay.style.bottom = '';
-      }
-    });
+  // Only show once per session — check sessionStorage
+  if (sessionStorage.getItem('rot_installDismissed')) return;
 
-    if (keyboardOpen) {
-      const focused = document.activeElement;
-      if (focused && focused.closest('.modal')) {
-        setTimeout(() => focused.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
-      }
-    }
-  };
+  // Delay slightly so it doesn't compete with page load
+  setTimeout(() => showInstallBanner(), 2000);
+});
 
-  window.visualViewport.addEventListener('resize', adjustForKeyboard);
-  window.visualViewport.addEventListener('scroll', adjustForKeyboard);
+window.addEventListener('appinstalled', () => {
+  _deferredInstallPrompt = null;
+  closeInstallBanner();
+});
+
+function showInstallBanner() {
+  if (document.getElementById('installBanner')) return;
+  if (!_deferredInstallPrompt) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'installBanner';
+  banner.className = 'install-banner';
+  banner.innerHTML = `
+    <div class="install-banner-text">
+      <strong>Install Rotations</strong>
+      <span>Add to your home screen for the best experience.</span>
+    </div>
+    <div class="install-banner-actions">
+      <button class="btn btn-sm btn-outline" onclick="dismissInstallBanner()">Later</button>
+      <button class="btn btn-sm btn-primary" onclick="acceptInstallPrompt()">Install</button>
+    </div>
+  `;
+  document.body.appendChild(banner);
 }
+
+function dismissInstallBanner() {
+  sessionStorage.setItem('rot_installDismissed', '1');
+  closeInstallBanner();
+}
+
+function closeInstallBanner() {
+  document.getElementById('installBanner')?.remove();
+}
+
+async function acceptInstallPrompt() {
+  if (!_deferredInstallPrompt) return;
+  closeInstallBanner();
+  _deferredInstallPrompt.prompt();
+  const { outcome } = await _deferredInstallPrompt.userChoice;
+  _deferredInstallPrompt = null;
+  if (outcome === 'accepted') {
+    showToast('App installed', 'success');
+  }
+}
+
+// -- Modal Input Focus (keyboard safety net) -------------------------------
+// With interactive-widget=overlays-content, the keyboard overlays content
+// instead of pushing the page. This listener ensures the focused input
+// scrolls into view within the modal's own scrollable area.
+document.addEventListener('focusin', (e) => {
+  const el = e.target;
+  if (!el || !el.closest('.modal')) return;
+  if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
+    setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 300);
+  }
+});
 
 // -- Boot -----------------------------------------------------------
 init();

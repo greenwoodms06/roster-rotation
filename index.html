@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=overlays-content">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f1923">
@@ -60,7 +60,7 @@
         </div>
       </div>
       <div class="toggle-row">
-        <span>First <span id="numPosLabel">7</span> checked = starters</span>
+        <span>First <span id="numPosLabel">7</span> in list = starters</span>
         <div class="toggle on" id="toggleStarters" onclick="toggleStarterMode()" role="switch" aria-checked="true" aria-label="Starter mode"></div>
       </div>
       <div class="constraint-expand-row" id="constraintToggle" onclick="toggleConstraintPanel()">
@@ -70,11 +70,22 @@
     </div>
 
     <div class="card">
-      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-        <span>Available Players</span>
-        <span class="available-count"><strong id="availCount">0</strong> / <span id="totalCount">0</span></span>
+      <div class="pickup-columns">
+        <div class="pickup-col pickup-col-left">
+          <div class="pickup-col-header">
+            <span class="pickup-col-title">Roster <span class="pickup-count" id="rosterCount">0</span></span>
+            <button class="btn-ghost pickup-action" onclick="selectAllPlayers()">All &rarr;</button>
+          </div>
+          <ul class="pickup-list" id="rosterPickList"></ul>
+        </div>
+        <div class="pickup-col pickup-col-right">
+          <div class="pickup-col-header">
+            <span class="pickup-col-title">Available Players <span class="pickup-count accent" id="availCount">0</span></span>
+            <button class="btn-ghost pickup-action" onclick="clearAllPlayers()">&larr; Clear</button>
+          </div>
+          <ul class="available-list" id="availableList"></ul>
+        </div>
       </div>
-      <ul class="available-list" id="availableList"></ul>
     </div>
 
     <button class="btn btn-primary" id="generateBtn" onclick="generatePlan()">
@@ -246,6 +257,10 @@
     <div class="about-section">
       <h3>After Generating</h3>
       <p>Tap any two players in the same period on the Lineup tab to swap them. Changes save automatically and are reflected in season stats. Use the Field tab to visualize positions on the playing surface.</p>
+    </div>
+    <div class="about-section">
+      <h3>License</h3>
+      <p>Licensed under the <a href="https://polyformproject.org/licenses/noncommercial/1.0.0" target="_blank" rel="noopener" style="color:var(--accent)">PolyForm Noncommercial 1.0.0</a> license. Free for personal and noncommercial use. Source available on <a href="https://github.com/greenwoodms06/roster-rotation" target="_blank" rel="noopener" style="color:var(--accent)">GitHub</a>.</p>
     </div>
     <div class="about-version">v1.0</div>
   </div>
