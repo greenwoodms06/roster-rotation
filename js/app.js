@@ -4054,10 +4054,62 @@ async function acceptInstallPrompt() {
   }
 }
 
-// -- Modal Input Focus (keyboard safety net) -------------------------------
+// -- Keyboard-vs-Modal Handler (iOS Safari + Android Chrome) ----------------
 // With interactive-widget=overlays-content, the keyboard overlays content
-// instead of pushing the page. This listener ensures the focused input
-// scrolls into view within the modal's own scrollable area.
+// instead of pushing the page. This means the bottom ~40-50% of the screen
+// is covered by the keyboard. We use the VisualViewport API to detect the
+// keyboard and shrink visible modal overlays to fit above it.
+//
+// For non-modal inline inputs (game label, game notes), the user can scroll
+// the page content naturally — no special handling needed.
+
+if (window.visualViewport) {
+  let _kbRafId = null;
+
+  const adjustModalsForKeyboard = () => {
+    _kbRafId = null;
+    const vv = window.visualViewport;
+    const keyboardHeight = window.innerHeight - vv.height;
+    const isKeyboardOpen = keyboardHeight > 100; // threshold avoids false positives from toolbars
+
+    if (isKeyboardOpen) {
+      // Constrain visible modal overlays to the visual viewport (area above keyboard)
+      const overlays = document.querySelectorAll('.modal-overlay:not(.hidden)');
+      overlays.forEach(overlay => {
+        overlay.style.height = vv.height + 'px';
+        overlay.style.top = vv.offsetTop + 'px';
+        overlay.style.bottom = 'auto';
+      });
+
+      // Scroll focused input into view within the resized modal
+      const focused = document.activeElement;
+      if (focused && focused.closest('.modal') &&
+          (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.tagName === 'SELECT')) {
+        focused.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    } else {
+      // Reset ALL overlays (including hidden ones that may retain stale inline styles
+      // from being closed while the keyboard was open)
+      document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.style.height = '';
+        overlay.style.top = '';
+        overlay.style.bottom = '';
+      });
+    }
+  };
+
+  const scheduleAdjust = () => {
+    if (_kbRafId) return; // coalesce rapid events during keyboard animation
+    _kbRafId = requestAnimationFrame(adjustModalsForKeyboard);
+  };
+
+  window.visualViewport.addEventListener('resize', scheduleAdjust);
+  window.visualViewport.addEventListener('scroll', scheduleAdjust);
+}
+
+// Secondary safety net: when an input inside a modal gains focus, ensure it's
+// scrolled into view after a short delay (covers cases where visualViewport
+// events haven't fired yet, e.g. programmatic focus).
 document.addEventListener('focusin', (e) => {
   const el = e.target;
   if (!el || !el.closest('.modal')) return;
