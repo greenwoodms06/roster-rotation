@@ -1289,7 +1289,7 @@ function renderAvailableList() {
   const existing = new Set(availableOrder.map(a => a.pid));
   for (const pid of ids) {
     if (!existing.has(pid)) {
-      availableOrder.push({ pid, checked: true });
+      availableOrder.push({ pid, checked: false });
     }
   }
   // Filter out players no longer in roster OR archived
