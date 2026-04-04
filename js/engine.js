@@ -206,15 +206,55 @@ class RotationEngine {
 
   // -- Phase 2: Period Scheduling -----------------------------------
 
-  _schedulePeriods(availableIds, periodsPerPlayer, numPeriods, firstAvailableStart) {
+  /**
+   * Assign players to periods.
+   * @param {string[]} availableIds
+   * @param {object} periodsPerPlayer — {pid: count} from Phase 1
+   * @param {number} numPeriods
+   * @param {boolean} firstAvailableStart
+   * @param {string[][]} [priorRosters=[]] — rosters from frozen periods (for rebalance
+   *   spacing continuity). Each element is an array of player IDs who played that period.
+   */
+  _schedulePeriods(availableIds, periodsPerPlayer, numPeriods, firstAvailableStart, priorRosters = []) {
     const remaining = { ...periodsPerPlayer };
     const periodRosters = Array.from({ length: numPeriods }, () => []);
+
+    // Spacing trackers: seed from prior (frozen) periods if provided
+    const lastPlayedPeriod = {};   // period index when player last played (-1 = never)
+    const consecutivePlays = {};   // how many periods in a row the player has played
+    const availSet = new Set(availableIds);
+    availableIds.forEach(pid => {
+      lastPlayedPeriod[pid] = -1;
+      consecutivePlays[pid] = 0;
+    });
+
+    // Seed spacing state from frozen periods (negative indices: -priorRosters.length .. -1)
+    for (let i = 0; i < priorRosters.length; i++) {
+      const priorPeriod = i - priorRosters.length; // negative index relative to period 0
+      const playedSet = new Set(priorRosters[i]);
+      for (const pid of availableIds) {
+        if (playedSet.has(pid)) {
+          lastPlayedPeriod[pid] = priorPeriod;
+          consecutivePlays[pid]++;
+        } else {
+          consecutivePlays[pid] = 0;
+        }
+      }
+    }
 
     let startPeriod = 0;
     if (firstAvailableStart && numPeriods > 0) {
       const starters = availableIds.slice(0, this.numPositions);
       periodRosters[0] = [...starters];
-      starters.forEach(pid => remaining[pid]--);
+      starters.forEach(pid => {
+        remaining[pid]--;
+        lastPlayedPeriod[pid] = 0;
+        consecutivePlays[pid]++;
+      });
+      // Non-starters sit period 0 — reset their consecutive streak
+      availableIds.forEach(pid => {
+        if (!starters.includes(pid)) consecutivePlays[pid] = 0;
+      });
       startPeriod = 1;
     }
 
@@ -223,15 +263,36 @@ class RotationEngine {
       const periodsLeftAfter = numPeriods - period - 1;
 
       candidates.sort((a, b) => {
+        // Primary: urgency (must play soon or will run out of periods)
         const urgA = remaining[a] - periodsLeftAfter;
         const urgB = remaining[b] - periodsLeftAfter;
         if (urgA !== urgB) return urgB - urgA;
-        return remaining[b] - remaining[a];
+        // Secondary: more remaining periods first (redundant when urgency ties,
+        // but kept for clarity)
+        if (remaining[a] !== remaining[b]) return remaining[b] - remaining[a];
+        // Tertiary: spacing — prefer players who sat longer (spread rest periods)
+        const gapA = period - lastPlayedPeriod[a];
+        const gapB = period - lastPlayedPeriod[b];
+        if (gapA !== gapB) return gapB - gapA;
+        // Quaternary: fatigue — prefer players with fewer consecutive plays
+        return consecutivePlays[a] - consecutivePlays[b];
       });
 
       const selected = candidates.slice(0, this.numPositions);
+      const selectedSet = new Set(selected);
       periodRosters[period] = selected;
-      selected.forEach(pid => remaining[pid]--);
+
+      // Update trackers
+      for (const pid of availableIds) {
+        if (selectedSet.has(pid)) {
+          remaining[pid]--;
+          lastPlayedPeriod[pid] = period;
+          consecutivePlays[pid]++;
+        } else if (remaining[pid] >= 0) {
+          // Player sat this period — reset consecutive streak
+          consecutivePlays[pid] = 0;
+        }
+      }
     }
 
     return periodRosters;
@@ -547,8 +608,10 @@ class RotationEngine {
     }
 
     // Step 5: Schedule remaining periods (Phase 2)
+    // Build frozen rosters for spacing continuity across the rebalance boundary
+    const frozenRosters = frozen.map(pa => Object.values(pa.assignments));
     const periodRosters = this._schedulePeriods(
-      remainingAvailable, periodsPerPlayer, remainingPeriods, false
+      remainingAvailable, periodsPerPlayer, remainingPeriods, false, frozenRosters
     );
 
     // Step 6: Assign positions (Phase 3), seeding from frozen data

@@ -694,6 +694,53 @@ A `Math.random() * 0.01` tiebreaker is added to each cell in `_buildCostMatrix()
 
 Implemented as default behavior (invisible to the coach) rather than a "re-roll" button, per the roadmap discussion note.
 
+## Period Spacing & Fatigue Management
+
+### Problem
+
+Phase 2 (`_schedulePeriods`) originally used only urgency and remaining-period count to decide who plays each period. When multiple players had equal urgency (common — e.g., 5 players all need 2 more periods with 3 remaining), the tiebreaker was array insertion order. This caused two issues:
+
+1. **Clustered rest:** A player sitting 2 of 4 quarters might sit Q2 and Q3 back-to-back, missing the entire middle of the game.
+2. **No fatigue awareness:** A player playing 3 of 4 quarters might play Q1–Q3 straight then sit Q4, rather than getting a mid-game break.
+
+### Solution: Spacing Tiebreakers
+
+Two new sort factors were added as tertiary and quaternary tiebreakers in the `_schedulePeriods` candidate sort:
+
+1. **Gap-since-last-play (tertiary):** `gap = currentPeriod - lastPlayedPeriod`. Players who have sat longer (higher gap) get priority to play next. This spreads rest periods across the game rather than clustering them.
+
+2. **Consecutive-play count (quaternary):** Players with fewer consecutive plays get priority over those on long play streaks. This encourages mid-game breaks — a player who played Q1+Q2 straight is deprioritized versus one who just returned from rest.
+
+Both factors only break ties when urgency and remaining counts are equal, so they never override fairness guarantees. The sort order is: urgency (primary) > remaining count (secondary, redundant but self-documenting) > gap since last play (tertiary) > consecutive plays (quaternary).
+
+### Tracking State
+
+Two maps are maintained across the scheduling loop:
+- `lastPlayedPeriod[pid]`: period index when player last played (initialized to −1)
+- `consecutivePlays[pid]`: running count of consecutive periods played (reset to 0 when sitting)
+
+For `firstAvailableStart`, starters are seeded with `lastPlayedPeriod = 0` and `consecutivePlays = 1` after period 0.
+
+### Rebalance Continuity
+
+When `rebalanceFromPeriod` regenerates periods from a frozen boundary, the frozen period rosters are passed as `priorRosters` to `_schedulePeriods`. This seeds the spacing trackers from the frozen data, so a player who played Q1+Q2 (frozen) gets appropriate deprioritization when scheduling Q3 (regenerated). Prior period indices are represented as negative numbers relative to the regenerated segment's period 0.
+
+### Observed Behavior (10 Players, 7v7, 4 Quarters)
+
+With spacing, rest distributes naturally:
+- Players sitting 2 quarters get non-consecutive rest (e.g., Q1+Q4, not Q1+Q2)
+- Players sitting 1 quarter predominantly sit Q2 or Q3 (mid-game break)
+- At most 1 player sits Q4 (playing 3 straight) — mathematically unavoidable with the roster arithmetic
+- `globalMaxPeriods=2` produces perfect alternating patterns (Q1+Q3 or Q2+Q4)
+- Non-starters with `firstAvailableStart` never sit Q1+Q2 consecutively
+
+### What Didn't Change
+
+- Phase 1 (playing time allocation) — unchanged
+- Phase 3 (position assignment / cost function) — unchanged
+- Public API of `generateGamePlan` — no new parameters (spacing is always-on, invisible to the coach)
+- Jitter (`Math.random() * 0.01`) — only in `_buildCostMatrix` (Phase 3), does not affect period scheduling
+
 ## Position Input Sanitization
 
 `sanitizePositions(rawStr)` normalizes the positions text field on blur and as a safety net inside `saveSeason()`. Rules:

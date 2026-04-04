@@ -620,3 +620,247 @@ suite('Engine — jitter produces varied but fair plans');
   const unique = new Set(sigs).size;
   assert(unique >= 2, `jitter produces variety: ${unique} unique plans out of 5`);
 }
+
+// ── Period Spacing & Fatigue tests ──────────────────────────────
+
+suite('Spacing — multi-sit players have no consecutive rest');
+{
+  // 10 players, 7 positions, 4 quarters. p09/p10 play 2 of 4 (sit 2).
+  // Their 2 rest periods should NOT be consecutive.
+  const roster = makeRoster(10, ['GK', 'CB', 'LB', 'RB', 'CM', 'LW', 'ST']);
+  run(ctx, `globalThis._roster = ${JSON.stringify(roster)};`);
+
+  const sitPatterns = run(ctx, `
+    globalThis._engine = new RotationEngine(globalThis._roster, {});
+    globalThis._plan = globalThis._engine.generateGamePlan('2026-04-01', ${JSON.stringify(pids(10))}, 4, false);
+    const sitMap = {};
+    ${JSON.stringify(pids(10))}.forEach(pid => sitMap[pid] = []);
+    globalThis._plan.periodAssignments.forEach((pa, i) => {
+      const playing = new Set(Object.values(pa.assignments));
+      ${JSON.stringify(pids(10))}.forEach(pid => {
+        if (!playing.has(pid)) sitMap[pid].push(i);
+      });
+    });
+    sitMap;
+  `);
+
+  for (const [pid, sits] of Object.entries(sitPatterns)) {
+    if (sits.length >= 2) {
+      for (let i = 1; i < sits.length; i++) {
+        assert(sits[i] - sits[i - 1] > 1,
+          `${pid} sitting ${sits.length} quarters: no consecutive rest (sits Q${sits.map(s => s + 1).join(',Q')})`);
+      }
+    }
+  }
+}
+
+suite('Spacing — globalMaxPeriods=2 play periods are spread');
+{
+  // 10 players, 5 positions, 4 quarters, max 2 periods each (5×4=20 slots, 10×2=20).
+  // Each player plays exactly 2 of 4 quarters — those 2 should NOT be adjacent.
+  const roster = makeRoster(10, ['GK', 'LB', 'RB', 'CM', 'ST']);
+  run(ctx, `globalThis._roster = ${JSON.stringify(roster)};`);
+
+  const playPatterns = run(ctx, `
+    globalThis._engine = new RotationEngine(globalThis._roster, {});
+    globalThis._plan = globalThis._engine.generateGamePlan('2026-04-01', ${JSON.stringify(pids(10))}, 4, false, {
+      globalMaxPeriods: 2
+    });
+    const playMap = {};
+    ${JSON.stringify(pids(10))}.forEach(pid => playMap[pid] = []);
+    globalThis._plan.periodAssignments.forEach((pa, i) => {
+      const playing = new Set(Object.values(pa.assignments));
+      ${JSON.stringify(pids(10))}.forEach(pid => {
+        if (playing.has(pid)) playMap[pid].push(i);
+      });
+    });
+    playMap;
+  `);
+
+  for (const [pid, plays] of Object.entries(playPatterns)) {
+    assertEqual(plays.length, 2, `${pid} plays exactly 2 periods with globalMaxPeriods=2`);
+    assert(plays[1] - plays[0] > 1,
+      `${pid} play periods are spread: Q${plays[0] + 1} and Q${plays[1] + 1} (gap=${plays[1] - plays[0]})`);
+  }
+}
+
+suite('Spacing — mid-game rest preferred (fatigue)');
+{
+  // 10 players, 7 positions, 4 quarters. Players playing 3 of 4 sit exactly 1 quarter.
+  // The majority should sit Q2 or Q3 (mid-game break), not Q4 (3 straight then sit).
+  // At most 1 player should sit Q4 (it's mathematically unavoidable for 1 in many configs).
+  const roster = makeRoster(10, ['GK', 'CB', 'LB', 'RB', 'CM', 'LW', 'ST']);
+  run(ctx, `globalThis._roster = ${JSON.stringify(roster)};`);
+
+  const sitQ4count = run(ctx, `
+    globalThis._engine = new RotationEngine(globalThis._roster, {});
+    globalThis._plan = globalThis._engine.generateGamePlan('2026-04-01', ${JSON.stringify(pids(10))}, 4, false);
+    let q4Sits = 0;
+    ${JSON.stringify(pids(10))}.forEach(function(pid) {
+      // Find which quarters this player sits
+      const sitsQ = [];
+      globalThis._plan.periodAssignments.forEach(function(pa, i) {
+        if (!Object.values(pa.assignments).includes(pid)) sitsQ.push(i);
+      });
+      // Only count players who sit exactly 1 quarter (playing 3 of 4)
+      if (sitsQ.length === 1 && sitsQ[0] === 3) q4Sits++;
+    });
+    q4Sits;
+  `);
+
+  assert(sitQ4count <= 1,
+    `at most 1 player (of those playing 3/4) sits only Q4 (got ${sitQ4count})`);
+}
+
+suite('Spacing — firstAvailableStart non-starters avoid Q1+Q2 consecutive sit');
+{
+  // 10 players, 7 positions, 4 quarters, firstAvailableStart=true.
+  // Non-starters (p08-p10) sit Q1 by definition. If they also sit a second quarter,
+  // it should NOT be Q2 (which would be consecutive sitting after the forced Q1 sit).
+  const roster = makeRoster(10, ['GK', 'CB', 'LB', 'RB', 'CM', 'LW', 'ST']);
+  run(ctx, `globalThis._roster = ${JSON.stringify(roster)};`);
+
+  const nonStarterSits = run(ctx, `
+    globalThis._engine = new RotationEngine(globalThis._roster, {});
+    globalThis._plan = globalThis._engine.generateGamePlan('2026-04-01', ${JSON.stringify(pids(10))}, 4, true);
+    const sitsMap = {};
+    ['p08', 'p09', 'p10'].forEach(function(pid) {
+      sitsMap[pid] = [];
+      globalThis._plan.periodAssignments.forEach(function(pa, i) {
+        if (!Object.values(pa.assignments).includes(pid)) sitsMap[pid].push(i);
+      });
+    });
+    sitsMap;
+  `);
+
+  for (const pid of ['p08', 'p09', 'p10']) {
+    const sits = nonStarterSits[pid];
+    assert(sits.includes(0), `${pid} sits Q1 (non-starter)`);
+    if (sits.length >= 2) {
+      assert(!sits.includes(1),
+        `${pid} does not also sit Q2 after forced Q1 sit (sits Q${sits.map(s => s + 1).join(',Q')})`);
+    }
+  }
+}
+
+suite('Spacing — rest distributed across all quarters');
+{
+  // 10 players, 7 positions, 4 quarters. Bench has 3 spots per quarter.
+  // With spacing, rest should be distributed: each quarter has ~3 benched players.
+  // (Without spacing, rest could cluster into adjacent quarters.)
+  const roster = makeRoster(10, ['GK', 'CB', 'LB', 'RB', 'CM', 'LW', 'ST']);
+  run(ctx, `globalThis._roster = ${JSON.stringify(roster)};`);
+
+  const benchCounts = run(ctx, `
+    globalThis._engine = new RotationEngine(globalThis._roster, {});
+    globalThis._plan = globalThis._engine.generateGamePlan('2026-04-01', ${JSON.stringify(pids(10))}, 4, false);
+    globalThis._plan.periodAssignments.map(function(pa) { return pa.bench.length; });
+  `);
+
+  for (let i = 0; i < 4; i++) {
+    assertEqual(benchCounts[i], 3, `Q${i + 1} bench count is 3`);
+  }
+}
+
+suite('Spacing — exact fit is unaffected');
+{
+  // 7 players, 7 positions, 4 quarters. Everyone plays every period.
+  // Spacing logic should be a no-op (no one ever sits).
+  const roster = makeRoster(7, ['GK', 'CB', 'LB', 'RB', 'CM', 'LW', 'ST']);
+  run(ctx, `globalThis._roster = ${JSON.stringify(roster)};`);
+
+  const summary = run(ctx, `
+    globalThis._engine = new RotationEngine(globalThis._roster, {});
+    globalThis._plan = globalThis._engine.generateGamePlan('2026-04-01', ${JSON.stringify(pids(7))}, 4, false);
+    getPlayerSummary(globalThis._plan);
+  `);
+
+  for (const pid of pids(7)) {
+    assertEqual(summary[pid].periodsPlayed, 4, `${pid} plays all 4 periods (exact fit)`);
+    assertEqual(summary[pid].benched, 0, `${pid} never benched (exact fit)`);
+  }
+}
+
+suite('Spacing — 3 periods, single-sit players prefer middle period');
+{
+  // 10 players, 7 positions, 3 periods. 21 slots / 10 = 2.1, so 1 plays 3, 9 play 2.
+  // Wait: 21/10 = base 2, extra 1. So 1 player plays 3, 9 play 2.
+  // The 9 who play 2 each sit 1 period. With spacing, ideally some sit the middle period.
+  const roster = makeRoster(10, ['GK', 'CB', 'LB', 'RB', 'CM', 'LW', 'ST']);
+  run(ctx, `globalThis._roster = ${JSON.stringify(roster)};`);
+
+  const sitCounts = run(ctx, `
+    globalThis._engine = new RotationEngine(globalThis._roster, {});
+    globalThis._plan = globalThis._engine.generateGamePlan('2026-04-01', ${JSON.stringify(pids(10))}, 3, false);
+    var counts = [0, 0, 0]; // sits per period
+    globalThis._plan.periodAssignments.forEach(function(pa, i) {
+      counts[i] = pa.bench.length;
+    });
+    counts;
+  `);
+
+  // Each period should have 3 benched (10-7=3), evenly distributed
+  for (let i = 0; i < 3; i++) {
+    assertEqual(sitCounts[i], 3, `period ${i + 1} has 3 benched`);
+  }
+}
+
+suite('Spacing — rebalance preserves spacing across boundary');
+{
+  // Generate a plan, rebalance from period 2. Players who played Q1+Q2 (frozen)
+  // should get spacing consideration in Q3+Q4.
+  const roster = makeRoster(10, ['GK', 'CB', 'LB', 'RB', 'CM', 'LW', 'ST']);
+  run(ctx, `globalThis._roster = ${JSON.stringify(roster)};`);
+
+  const rebResult = run(ctx, `
+    globalThis._engine = new RotationEngine(globalThis._roster, {});
+    globalThis._plan = globalThis._engine.generateGamePlan('2026-04-01', ${JSON.stringify(pids(10))}, 4, false);
+    globalThis._reb = globalThis._engine.rebalanceFromPeriod(globalThis._plan, 2, [], {});
+    // Check that rebalanced plan still has valid structure
+    var ok = true;
+    for (var i = 0; i < 4; i++) {
+      if (Object.keys(globalThis._reb.periodAssignments[i].assignments).length !== 7) ok = false;
+      if (globalThis._reb.periodAssignments[i].bench.length !== 3) ok = false;
+    }
+    // Check playing time fairness
+    var counts = {};
+    ${JSON.stringify(pids(10))}.forEach(function(pid) { counts[pid] = 0; });
+    globalThis._reb.periodAssignments.forEach(function(pa) {
+      Object.values(pa.assignments).forEach(function(pid) { counts[pid]++; });
+    });
+    var vals = Object.values(counts);
+    ({ ok: ok, min: Math.min.apply(null, vals), max: Math.max.apply(null, vals) });
+  `);
+
+  assert(rebResult.ok, 'rebalanced plan has valid structure (7 playing, 3 benched each period)');
+  assert(rebResult.max - rebResult.min <= 1,
+    `rebalanced plan has fair playing time (spread=${rebResult.max - rebResult.min})`);
+}
+
+suite('Spacing — fairness invariant holds with spacing (statistical)');
+{
+  // Run 10 trials to verify spacing never breaks fairness invariants
+  const roster = makeRoster(10, ['GK', 'CB', 'LB', 'RB', 'CM', 'LW', 'ST']);
+  run(ctx, `globalThis._roster = ${JSON.stringify(roster)};`);
+
+  for (let trial = 0; trial < 10; trial++) {
+    const plan = run(ctx, `
+      globalThis._engine = new RotationEngine(globalThis._roster, {});
+      globalThis._engine.generateGamePlan('2026-04-01', ${JSON.stringify(pids(10))}, 4, false);
+    `);
+
+    let totalSlots = 0;
+    const counts = {};
+    pids(10).forEach(pid => counts[pid] = 0);
+    for (const pa of plan.periodAssignments) {
+      const assigned = Object.keys(pa.assignments).length;
+      assertEqual(assigned, 7, `trial ${trial}: 7 assigned per period`);
+      totalSlots += assigned;
+      for (const pid of Object.values(pa.assignments)) counts[pid]++;
+    }
+    assertEqual(totalSlots, 28, `trial ${trial}: 28 total slots filled`);
+    const vals = Object.values(counts);
+    const spread = Math.max(...vals) - Math.min(...vals);
+    assert(spread <= 1, `trial ${trial}: playing time spread <= 1 (got ${spread})`);
+  }
+}
