@@ -73,14 +73,20 @@
       <div class="pickup-columns">
         <div class="pickup-col pickup-col-left">
           <div class="pickup-col-header">
-            <span class="pickup-col-title">Roster <span class="pickup-count" id="rosterCount">0</span></span>
+            <div class="pickup-col-title-wrap">
+              <span class="pickup-col-title">Roster</span>
+              <span class="pickup-count" id="rosterCount">0</span>
+            </div>
             <button class="btn-ghost pickup-action" onclick="selectAllPlayers()">All &rarr;</button>
           </div>
           <ul class="pickup-list" id="rosterPickList"></ul>
         </div>
         <div class="pickup-col pickup-col-right">
           <div class="pickup-col-header">
-            <span class="pickup-col-title">Available Players <span class="pickup-count accent" id="availCount">0</span></span>
+            <div class="pickup-col-title-wrap">
+              <span class="pickup-col-title">Available Players</span>
+              <span class="pickup-count" id="availCount">0</span>
+            </div>
             <button class="btn-ghost pickup-action" onclick="clearAllPlayers()">&larr; Clear</button>
           </div>
           <ul class="available-list" id="availableList"></ul>

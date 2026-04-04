@@ -462,6 +462,9 @@ label {
   text-transform: uppercase; letter-spacing: 0.5px;
   color: var(--fg2);
 }
+.pickup-col-title-wrap {
+  display: flex; flex-direction: column; gap: 1px;
+}
 .pickup-count {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px; font-weight: 600; margin-left: 4px;

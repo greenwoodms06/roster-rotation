@@ -1314,8 +1314,9 @@ function renderAvailableItems() {
   const checkedCount = selected.length;
 
   // Update counts
-  document.getElementById('rosterCount').textContent = unselectedPids.length;
-  document.getElementById('availCount').textContent = `${checkedCount} / ${checkedCount + unselectedPids.length}`;
+  const totalPlayers = checkedCount + unselectedPids.length;
+  document.getElementById('rosterCount').textContent = `${unselectedPids.length} / ${totalPlayers}`;
+  document.getElementById('availCount').textContent = `${checkedCount} / ${totalPlayers}`;
   document.getElementById('generateBtn').disabled = checkedCount < numPositions;
 
   // ── Left column: Roster (unselected) ──
@@ -4056,67 +4057,80 @@ async function acceptInstallPrompt() {
 
 // -- Keyboard-vs-Modal Handler (iOS Safari + Android Chrome) ----------------
 // With interactive-widget=overlays-content, the keyboard overlays content
-// instead of pushing the page. This means the bottom ~40-50% of the screen
-// is covered by the keyboard. We use the VisualViewport API to detect the
-// keyboard and shrink visible modal overlays to fit above it.
-//
-// For non-modal inline inputs (game label, game notes), the user can scroll
-// the page content naturally — no special handling needed.
+// instead of pushing the page. On iOS Safari, visualViewport does NOT shrink
+// when the keyboard opens (that's the point of overlays-content), so we can't
+// rely on it. Instead, focusin/focusout are the PRIMARY mechanism: when a modal
+// input gains focus, we immediately constrain the overlay to ~60% of screen
+// height (above the keyboard). The visualViewport resize handler is kept as a
+// REFINEMENT for Android Chrome, where it does report accurate dimensions.
 
-if (window.visualViewport) {
-  let _kbRafId = null;
+let _kbActiveOverlay = null; // overlay currently adjusted for keyboard
 
-  const adjustModalsForKeyboard = () => {
-    _kbRafId = null;
-    const vv = window.visualViewport;
-    const keyboardHeight = window.innerHeight - vv.height;
-    const isKeyboardOpen = keyboardHeight > 100; // threshold avoids false positives from toolbars
+document.addEventListener('focusin', (e) => {
+  const el = e.target;
+  if (!el) return;
+  const overlay = el.closest('.modal-overlay');
+  if (!overlay || overlay.classList.contains('hidden')) return;
+  if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA' && el.tagName !== 'SELECT') return;
 
-    if (isKeyboardOpen) {
-      // Constrain visible modal overlays to the visual viewport (area above keyboard)
-      const overlays = document.querySelectorAll('.modal-overlay:not(.hidden)');
-      overlays.forEach(overlay => {
-        overlay.style.height = vv.height + 'px';
-        overlay.style.top = vv.offsetTop + 'px';
-        overlay.style.bottom = 'auto';
-      });
+  _kbActiveOverlay = overlay;
 
-      // Scroll focused input into view within the resized modal
-      const focused = document.activeElement;
-      if (focused && focused.closest('.modal') &&
-          (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.tagName === 'SELECT')) {
-        focused.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
-    } else {
-      // Reset ALL overlays (including hidden ones that may retain stale inline styles
-      // from being closed while the keyboard was open)
+  // Constrain overlay to fit above keyboard. On iOS the keyboard is ~35-40%
+  // of screen height; 60% leaves comfortable clearance.
+  const safeHeight = window.innerHeight * 0.6;
+  overlay.style.height = safeHeight + 'px';
+  overlay.style.top = '0';
+  overlay.style.bottom = 'auto';
+
+  setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 300);
+});
+
+document.addEventListener('focusout', (e) => {
+  // Delay check: when tapping between inputs in the same modal, focusout fires
+  // before focusin on the new target. Wait to see if focus stays in a modal.
+  setTimeout(() => {
+    const focused = document.activeElement;
+    const stillInModal = focused && focused.closest('.modal-overlay') &&
+      (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.tagName === 'SELECT');
+    if (!stillInModal) {
+      // Keyboard is closing — reset all overlays (including hidden ones that
+      // may retain stale inline styles from being closed while keyboard was open)
       document.querySelectorAll('.modal-overlay').forEach(overlay => {
         overlay.style.height = '';
         overlay.style.top = '';
         overlay.style.bottom = '';
       });
+      _kbActiveOverlay = null;
+    }
+  }, 150);
+});
+
+// Refinement: on Android Chrome (and browsers where visualViewport DOES shrink
+// with overlays-content), use precise dimensions instead of the heuristic.
+if (window.visualViewport) {
+  let _kbRafId = null;
+  const refineForKeyboard = () => {
+    _kbRafId = null;
+    if (!_kbActiveOverlay) return;
+    const vv = window.visualViewport;
+    const kbHeight = window.innerHeight - vv.height;
+    if (kbHeight > 100) {
+      // VisualViewport gave us real keyboard dimensions — use them
+      _kbActiveOverlay.style.height = vv.height + 'px';
+      _kbActiveOverlay.style.top = vv.offsetTop + 'px';
+      const focused = document.activeElement;
+      if (focused && focused.closest('.modal')) {
+        focused.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
     }
   };
-
-  const scheduleAdjust = () => {
-    if (_kbRafId) return; // coalesce rapid events during keyboard animation
-    _kbRafId = requestAnimationFrame(adjustModalsForKeyboard);
+  const scheduleRefine = () => {
+    if (_kbRafId) return;
+    _kbRafId = requestAnimationFrame(refineForKeyboard);
   };
-
-  window.visualViewport.addEventListener('resize', scheduleAdjust);
-  window.visualViewport.addEventListener('scroll', scheduleAdjust);
+  window.visualViewport.addEventListener('resize', scheduleRefine);
+  window.visualViewport.addEventListener('scroll', scheduleRefine);
 }
-
-// Secondary safety net: when an input inside a modal gains focus, ensure it's
-// scrolled into view after a short delay (covers cases where visualViewport
-// events haven't fired yet, e.g. programmatic focus).
-document.addEventListener('focusin', (e) => {
-  const el = e.target;
-  if (!el || !el.closest('.modal')) return;
-  if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
-    setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 300);
-  }
-});
 
 // -- Boot -----------------------------------------------------------
 init();
