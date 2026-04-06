@@ -1574,12 +1574,123 @@ label {
 .tl-seg { display: block; min-width: 1px; opacity: 0.7; }
 .tl-gap { background: transparent !important; opacity: 1; }
 
-/* -- Bench Playing Time Bar --------------------------- */
-.bench-chip { position: relative; overflow: hidden; }
-.bench-time-bar {
-  position: absolute; bottom: 0; left: 0; height: 3px;
-  background: var(--accent); opacity: 0.5;
-  border-radius: 0 0 4px 4px;
+.slot-timeline { cursor: pointer; }
+.slot-timeline:active { opacity: 0.7; }
+
+/* -- Player Time Detail Popup --------------------- */
+.ptp-popup {
+  max-width: 380px; width: calc(100% - 32px);
+  padding: 16px 14px 12px;
+  max-height: 85vh; overflow-y: auto;
+}
+.ptp-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 12px;
+}
+.ptp-name { font-size: 15px; font-weight: 700; color: var(--fg); }
+.ptp-time-toggle {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600;
+  color: var(--accent); background: transparent; border: 1px solid var(--accent);
+  border-radius: 4px; padding: 2px 6px; cursor: pointer;
+}
+.ptp-time-toggle:active { background: rgba(0,230,118,0.1); }
+.ptp-period-block {
+  margin-bottom: 10px; padding: 8px; border-radius: 6px;
+  background: var(--bg);
+}
+.ptp-period-block.ptp-current {
+  border: 1.5px solid var(--accent);
+}
+.ptp-period-hdr {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 6px; font-size: 12px; font-weight: 700; color: var(--fg);
+}
+.ptp-period-stat {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  font-weight: 600; color: var(--fg2);
+}
+.ptp-bar-wrap {
+  position: relative; margin-bottom: 4px;
+}
+.ptp-bar {
+  display: flex; height: 16px; border-radius: 3px; overflow: hidden;
+  background: var(--bg3); border: 1px solid var(--border-faint);
+  position: relative;
+}
+.ptp-ticks {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+}
+.ptp-tick {
+  position: absolute; top: 0; bottom: 0; width: 1px;
+  background: var(--bg2); transform: translateX(-0.5px);
+}
+.ptp-seg { display: block; min-width: 1px; opacity: 0.75; }
+.ptp-gap { background: transparent !important; opacity: 1; }
+.ptp-markers {
+  position: relative; height: 14px; margin-top: 1px;
+}
+.ptp-marker {
+  position: absolute; transform: translateX(-50%);
+  font-family: 'JetBrains Mono', monospace; font-size: 8px;
+  color: var(--fg2); white-space: nowrap;
+}
+.ptp-details { margin-top: 4px; }
+.ptp-detail-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 2px 0; font-size: 12px;
+}
+.ptp-swatch {
+  width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0;
+}
+.ptp-pos {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  font-weight: 600; color: var(--fg2); width: 24px;
+}
+.ptp-range {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: var(--fg); flex: 1;
+}
+.ptp-pct {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: var(--accent); font-weight: 600;
+}
+.ptp-bench-note {
+  font-size: 11px; color: var(--fg2); font-style: italic; padding: 2px 0;
+}
+.ptp-game-total {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  font-weight: 600; color: var(--fg); text-align: center;
+  padding: 8px 0 4px; border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+.ptp-reset-btn {
+  display: block; margin: 4px 0 0 auto; font-size: 10px;
+  background: transparent; border: 1px solid var(--border);
+  border-radius: 4px; color: var(--fg2); padding: 3px 8px;
+  cursor: pointer;
+}
+.ptp-reset-btn:active { border-color: var(--danger); color: var(--danger); }
+.ptp-reset-all {
+  width: 100%; font-size: 12px; padding: 8px;
+  background: transparent; border: 1px solid var(--danger);
+  border-radius: 6px; color: var(--danger); cursor: pointer;
+  margin: 8px 0 4px;
+}
+.ptp-reset-all:active { background: rgba(255,82,82,0.1); }
+
+/* -- Bench Chip with External Bar --------------------- */
+.bench-chip-wrap {
+  display: flex; flex-direction: column; align-items: stretch;
+}
+.bench-bar-wrap {
+  height: 4px; margin-top: 3px; border-radius: 2px;
+  background: var(--bg3); cursor: pointer; overflow: hidden;
+}
+.bench-bar-wrap:active { opacity: 0.7; }
+.bench-time-bar-ext {
+  display: block; height: 100%; background: var(--accent); opacity: 0.6;
+  border-radius: 2px;
 }
 
 /* -- Sub Popup ---------------------------------------- */
@@ -1668,6 +1779,48 @@ label {
   color: var(--fg2); font-size: 11px; padding: 1px 4px; cursor: pointer;
   margin-left: 4px; vertical-align: middle;
 }
+
+/* -- Duration Input Fields ----------------------------- */
+.dur-input-row {
+  display: flex; align-items: center; justify-content: center;
+  gap: 4px; margin: 16px 0;
+}
+.dur-field {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.dur-step {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--fg2); font-size: 10px; width: 48px; height: 24px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.dur-step:active { border-color: var(--accent); color: var(--accent); }
+.dur-num {
+  font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 700;
+  text-align: center; width: 48px; padding: 4px;
+  background: var(--bg); border: 1.5px solid var(--border); border-radius: 6px;
+  color: var(--fg); -moz-appearance: textfield;
+}
+.dur-num::-webkit-outer-spin-button,
+.dur-num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.dur-label { font-size: 10px; color: var(--fg2); }
+.dur-colon {
+  font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 700;
+  color: var(--fg2); margin: 0 2px; align-self: center;
+}
+.dur-compact {
+  display: flex; align-items: center; gap: 2px;
+}
+.dur-compact span {
+  font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--fg2);
+}
+.dur-num-sm {
+  font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600;
+  text-align: center; width: 36px; padding: 5px 2px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--fg); -moz-appearance: textfield;
+}
+.dur-num-sm::-webkit-outer-spin-button,
+.dur-num-sm::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .sub-confirm-time {
   width: 100%; padding: 10px;
 }

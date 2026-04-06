@@ -459,3 +459,114 @@ suite('deriveVisualBench — tracks through multiple subs');
   bench = run(ctx, "deriveVisualBench(currentPlan, 0)");
   assertEqual(bench, ['C'], 'after replace: back to C on bench');
 }
+
+// ── removePlayerFromOtherPositions ────────────────────
+
+suite('Replace cleans up player entries from other positions');
+{
+  const ctx = freshCtx();
+  // A shifted with B at 0.5, then Replace puts A at CM
+  setupGame(ctx, ['CB', 'LW', 'CM'], {
+    CB: [{ pid: 'A', timeIn: 0, timeOut: 0.5 }, { pid: 'B', timeIn: 0.5, timeOut: 1 }],
+    LW: [{ pid: 'B', timeIn: 0, timeOut: 0.5 }, { pid: 'A', timeIn: 0.5, timeOut: 1 }],
+    CM: [{ pid: 'C', timeIn: 0, timeOut: 1 }],
+  }, ['A', 'B', 'C', 'D']);
+
+  // Replace C at CM with A (from bench — A is on field at LW but Replace gives full period)
+  run(ctx, "executeFullReplace(0, 'A', 'C')");
+  const pa = run(ctx, 'currentPlan.periodAssignments[0]');
+
+  // A should only be at LW (current location), C goes to CM? No — Replace resolves locations:
+  // A is at LW (field), C is at CM (field) → field↔field replace
+  // LW gets C full period, CM gets A full period
+  // A's old entry at CB should be cleaned up
+
+  // Verify A is NOT in CB anymore
+  const cbHasA = pa.assignments.CB.some(e => e.pid === 'A');
+  assert(!cbHasA, 'A cleaned out of CB after replace');
+
+  // Verify total credit for A in this period
+  let totalA = 0;
+  for (const occ of Object.values(pa.assignments)) {
+    for (const e of occ) { if (e.pid === 'A') totalA += (e.timeOut - e.timeIn); }
+  }
+  assertApprox(totalA, 1.0, 0.01, 'A total credit is 1.0 after replace cleanup');
+}
+
+suite('Replace bench→field cleans up bench player stale entries');
+{
+  const ctx = freshCtx();
+  // B subbed in for A at 0.5 in CB, then we Replace B into LW
+  setupGame(ctx, ['CB', 'LW'], {
+    CB: [{ pid: 'A', timeIn: 0, timeOut: 0.5 }, { pid: 'B', timeIn: 0.5, timeOut: 1 }],
+    LW: [{ pid: 'C', timeIn: 0, timeOut: 1 }],
+  }, ['A', 'B', 'C']);
+
+  // A is on bench (was subbed out of CB)
+  // Replace C at LW with A
+  run(ctx, "executeFullReplace(0, 'C', 'A')");
+  const pa = run(ctx, 'currentPlan.periodAssignments[0]');
+
+  // A now at LW for full period. A's old CB entry (0→0.5) should be cleaned up
+  const cbHasA = pa.assignments.CB.some(e => e.pid === 'A');
+  assert(!cbHasA, 'A cleaned out of CB after replace from bench');
+
+  // B should have expanded to fill A's gap in CB
+  assertApprox(pa.assignments.CB[0].timeIn, 0, 0.001, 'CB gap filled — starts at 0');
+  assertApprox(pa.assignments.CB[0].timeOut, 1, 0.001, 'CB gap filled — ends at 1');
+}
+
+// ── resetPlayerInPeriod ───────────────────────────────
+
+suite('resetPlayerInPeriod — resets to clean full period');
+{
+  const ctx = freshCtx();
+  setupGame(ctx, ['CB', 'LW', 'CM'], {
+    CB: [{ pid: 'A', timeIn: 0, timeOut: 0.5 }, { pid: 'B', timeIn: 0.5, timeOut: 1 }],
+    LW: [{ pid: 'B', timeIn: 0, timeOut: 0.5 }, { pid: 'A', timeIn: 0.5, timeOut: 1 }],
+    CM: [{ pid: 'C', timeIn: 0, timeOut: 1 }],
+  }, ['A', 'B', 'C']);
+
+  // A is currently at LW. Reset should give A full period at LW, remove from CB
+  run(ctx, "resetPlayerInPeriod(0, 'A')");
+  const pa = run(ctx, 'currentPlan.periodAssignments[0]');
+
+  assertEqual(pa.assignments.LW.length, 1, 'LW is clean single entry');
+  assertEqual(pa.assignments.LW[0].pid, 'A', 'LW is A');
+  assertApprox(pa.assignments.LW[0].timeOut, 1.0, 0.001, 'A owns full period at LW');
+
+  // A should not appear in CB
+  const cbHasA = pa.assignments.CB.some(e => e.pid === 'A');
+  assert(!cbHasA, 'A removed from CB');
+
+  // B should fill the gap in CB
+  assertApprox(pa.assignments.CB[0].timeOut, 1.0, 0.001, 'B expanded to fill CB');
+}
+
+// ── Slot credits sum to 1.0 after replace cleanup ─────
+
+suite('all slots sum to 1.0 after replace with cleanup');
+{
+  const ctx = freshCtx();
+  setupGame(ctx, ['CB', 'LW', 'CM'], {
+    CB: [{ pid: 'A', timeIn: 0, timeOut: 0.5 }, { pid: 'B', timeIn: 0.5, timeOut: 1 }],
+    LW: [{ pid: 'B', timeIn: 0, timeOut: 0.5 }, { pid: 'A', timeIn: 0.5, timeOut: 1 }],
+    CM: [{ pid: 'C', timeIn: 0, timeOut: 0.5 }, { pid: 'A', timeIn: 0.5, timeOut: 1 }],
+  }, ['A', 'B', 'C', 'D']);
+
+  // A is at CM, LW, CB (>100% — broken state). Replace A with D at CM.
+  run(ctx, "executeFullReplace(0, 'A', 'D')");
+  const pa = run(ctx, 'currentPlan.periodAssignments[0]');
+
+  for (const [pos, occ] of Object.entries(pa.assignments)) {
+    const total = occ.reduce((s, e) => s + (e.timeOut - e.timeIn), 0);
+    assertApprox(total, 1.0, 0.01, `${pos} credits sum to 1.0`);
+  }
+
+  // A should have <= 1.0 total credit
+  let totalA = 0;
+  for (const occ of Object.values(pa.assignments)) {
+    for (const e of occ) { if (e.pid === 'A') totalA += (e.timeOut - e.timeIn); }
+  }
+  assert(totalA <= 1.01, `A total credit (${totalA}) is <= 1.0`);
+}

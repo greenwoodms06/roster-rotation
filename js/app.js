@@ -2322,7 +2322,7 @@ function renderLineup() {
               const gapW = ((1.0 - cursor) * 100).toFixed(1);
               barSegs += `<span class="tl-seg tl-gap" style="width:${gapW}%"></span>`;
             }
-            timelineHtml = `<div class="slot-timeline">${barSegs}</div>`;
+            timelineHtml = `<div class="slot-timeline" onclick="event.stopPropagation();openPlayerTimePopup(${pi},'${pid}')">${barSegs}</div>`;
           }
         }
 
@@ -2340,7 +2340,6 @@ function renderLineup() {
           const bGoalBadge = bGoals > 0 ? ` <span class="bench-goal-badge">${bGoals}</span>` : '';
           let benchBar = '';
           if (showTimeline) {
-            // Show how much of THIS period this bench player has played
             let periodCredit = 0;
             for (const occ of Object.values(pa.assignments)) {
               const entries = Array.isArray(occ) ? occ : [];
@@ -2349,10 +2348,10 @@ function renderLineup() {
               }
             }
             if (periodCredit > 0.001) {
-              benchBar = `<span class="bench-time-bar" style="width:${(periodCredit * 100).toFixed(0)}%"></span>`;
+              benchBar = `<div class="bench-bar-wrap" onclick="event.stopPropagation();openPlayerTimePopup(${pi},'${bpid}')"><span class="bench-time-bar-ext" style="width:${(periodCredit * 100).toFixed(0)}%"></span></div>`;
             }
           }
-          html += `<div class="bench-chip${isSel}${isHi}" onclick="handleSwapTap(${pi},'${bpid}','bench')">${displayNameHtml(bpid)}${bGoalBadge}${benchBar}</div>`;
+          html += `<div class="bench-chip-wrap"><div class="bench-chip${isSel}${isHi}" onclick="handleSwapTap(${pi},'${bpid}','bench')">${displayNameHtml(bpid)}${bGoalBadge}</div>${benchBar}</div>`;
         }
         html += '</div></div>';
       }
@@ -2772,19 +2771,108 @@ function executeFullReplace(periodIdx, pidA, pidB) {
   if (locs[pidA].type === 'field' && locs[pidB].type === 'field') {
     pa.assignments[locs[pidA].pos] = [{ pid: pidB, timeIn: 0.0, timeOut: 1.0 }];
     pa.assignments[locs[pidB].pos] = [{ pid: pidA, timeIn: 0.0, timeOut: 1.0 }];
+    // Clean up: remove each player's stale entries from other positions
+    removePlayerFromOtherPositions(pa, pidA, locs[pidB].pos);
+    removePlayerFromOtherPositions(pa, pidB, locs[pidA].pos);
   } else {
     const fieldPid = locs[pidA].type === 'field' ? pidA : pidB;
     const benchPid = locs[pidA].type === 'bench' ? pidA : pidB;
     pa.assignments[locs[fieldPid].pos] = [{ pid: benchPid, timeIn: 0.0, timeOut: 1.0 }];
+    // Clean up: remove bench player's stale entries from other positions
+    removePlayerFromOtherPositions(pa, benchPid, locs[fieldPid].pos);
     pa.bench = pa.bench.filter(b => b !== benchPid);
     if (!pa.bench.includes(fieldPid)) pa.bench.push(fieldPid);
   }
   swapSelection = null;
   swapHighlight = { periodIdx, pids: [pidA, pidB] };
+  validateAssignments(currentPlan.periodAssignments[periodIdx]);
   Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
   markDataDirty(); renderLineup();
   showToast(`Replaced ${displayName(pidA)} and ${displayName(pidB)}`, 'success');
   setTimeout(() => { swapHighlight = null; renderLineup(); }, 1200);
+}
+
+/**
+ * Remove all entries for a player from positions OTHER than keepPos,
+ * filling gaps by extending adjacent entries. This ensures a player
+ * can't have >100% credit in a single period.
+ */
+function removePlayerFromOtherPositions(pa, pid, keepPos) {
+  for (const [pos, occ] of Object.entries(pa.assignments)) {
+    if (pos === keepPos || !Array.isArray(occ)) continue;
+    // Find entries belonging to this player
+    const toRemove = [];
+    for (let i = 0; i < occ.length; i++) {
+      if (occ[i].pid === pid) toRemove.push(i);
+    }
+    if (toRemove.length === 0) continue;
+
+    // Remove entries and fill gaps
+    for (let r = toRemove.length - 1; r >= 0; r--) {
+      const idx = toRemove[r];
+      const removed = occ[idx];
+      occ.splice(idx, 1);
+      if (occ.length === 0) {
+        // Entire slot was this player — shouldn't happen but handle gracefully
+        // Leave empty; validateAssignments can catch this
+        continue;
+      }
+      // Fill the gap: extend the adjacent entry
+      if (idx < occ.length) {
+        // Next entry exists — pull its timeIn back
+        occ[idx].timeIn = removed.timeIn;
+      } else if (idx > 0) {
+        // No next entry — push previous entry's timeOut forward
+        occ[idx - 1].timeOut = removed.timeOut;
+      }
+    }
+  }
+}
+
+/**
+ * Reset a player in a specific period: give them a clean full-period entry
+ * at their current position (or remove them entirely if benched).
+ */
+function resetPlayerInPeriod(periodIdx, pid) {
+  if (!currentPlan || !ctx) return;
+  const pa = currentPlan.periodAssignments[periodIdx];
+  const locs = resolveSwapLocations(periodIdx, pid, pid);
+  const loc = locs[pid];
+
+  if (loc.type === 'field') {
+    // Clean entry at current position, remove from all others
+    pa.assignments[loc.pos] = [{ pid, timeIn: 0.0, timeOut: 1.0 }];
+    removePlayerFromOtherPositions(pa, pid, loc.pos);
+  } else {
+    // Player is on bench — remove all their entries from all positions
+    removePlayerFromOtherPositions(pa, pid, null);
+  }
+
+  validateAssignments(pa);
+  Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+  markDataDirty();
+}
+
+/** Validate: no player as last-occupant of multiple positions. */
+function validateAssignments(pa) {
+  const seen = new Set();
+  for (const [pos, occ] of Object.entries(pa.assignments)) {
+    if (!Array.isArray(occ) || occ.length === 0) continue;
+    const lastPid = occ[occ.length - 1].pid;
+    if (seen.has(lastPid)) {
+      // Duplicate! This player is already the current occupant of another position.
+      // Revert this slot's last entry to the previous occupant, or remove if only entry.
+      console.warn(`[validateAssignments] Duplicate last-occupant ${lastPid} at ${pos} — fixing`);
+      if (occ.length > 1) {
+        // Remove the last entry, extend the previous one to 1.0
+        occ.pop();
+        occ[occ.length - 1].timeOut = 1.0;
+      }
+      // If single entry, we can't do much — leave it (shouldn't happen)
+    } else {
+      seen.add(lastPid);
+    }
+  }
 }
 
 /** Swap: exchange current positions, splitting entries that span before the swap point. */
@@ -2825,6 +2913,7 @@ function executeSwap(periodIdx, pidA, pidB) {
 
   swapSelection = null;
   swapHighlight = { periodIdx, pids: [pidA, pidB] };
+  validateAssignments(currentPlan.periodAssignments[periodIdx]);
   Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
   markDataDirty(); renderLineup();
   showToast(`Swapped ${displayName(pidA)} and ${displayName(pidB)}`, 'success');
@@ -2847,6 +2936,7 @@ function executeMidPeriodSub(periodIdx, pidA, pidB, atFraction) {
   }
   swapSelection = null;
   swapHighlight = { periodIdx, pids: [pidA, pidB] };
+  validateAssignments(currentPlan.periodAssignments[periodIdx]);
   Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
   markDataDirty(); renderLineup();
   showToast(`Sub at ${Math.round(atFraction * 100)}%`, 'success');
@@ -2882,19 +2972,20 @@ function openSubPopup(periodIdx, pidA, pidB) {
   } else {
     const pd = getActivePeriodDuration(), inc = getActivePeriodIncrement();
     if (pd) {
-      const minS = Math.ceil((tS * pd + 1) / inc) * inc;
-      const maxS = Math.floor((tE * pd - 1) / inc) * inc;
+      // Bounds: stepper can reach entry edges. Confirm detects swap at boundaries.
+      const minS = Math.round(tS * pd);
+      const maxS = Math.round(tE * pd);
       const cf = (getActiveClockEnabled() && getActiveClockAutoFill() && clockRunning) ? clockGetFraction() : null;
-      let init = (cf != null && cf > tS && cf < tE) ? Math.round((cf * pd) / inc) * inc : Math.round(((tS + tE) / 2 * pd) / inc) * inc;
+      let init = (cf != null && cf > tS && cf < tE) ? Math.round(cf * pd) : Math.round((tS + tE) / 2 * pd);
       init = Math.max(minS, Math.min(init, maxS));
       const timeLabel = getActiveTimeDisplay() === 'remaining' ? 'remaining' : 'elapsed';
       if (minS <= maxS) {
         pickerHtml = `<div class="sub-stepper"><button class="sub-step-btn" onclick="stepSubTime(-1)">−</button><span class="sub-time-display" id="subTimeDisplay">${fractionToDisplay(init / pd, pd)}</span><button class="sub-step-btn" onclick="stepSubTime(1)">+</button></div>
         <div class="sub-time-label">${timeLabel} <button class="sub-time-toggle" onclick="toggleSubTimeDisplay()">↕</button></div>
         <div class="sub-inc-row"><button class="sub-inc${inc===1?' active':''}" onclick="setSubInc(1)">1s</button><button class="sub-inc${inc===10?' active':''}" onclick="setSubInc(10)">10s</button><button class="sub-inc${inc===30?' active':''}" onclick="setSubInc(30)">30s</button><button class="sub-inc${inc===60?' active':''}" onclick="setSubInc(60)">1m</button><button class="sub-inc${inc===300?' active':''}" onclick="setSubInc(300)">5m</button></div>
-        <input type="hidden" id="subTimeSec" value="${init}"><input type="hidden" id="subTimeMin" value="${minS}"><input type="hidden" id="subTimeMax" value="${maxS}"><input type="hidden" id="subEntryStart" value="${tS}"><input type="hidden" id="subEntryEnd" value="${tE}">
+        <input type="hidden" id="subTimeSec" value="${init}"><input type="hidden" id="subTimeMin" value="${minS}"><input type="hidden" id="subTimeMax" value="${maxS}">
         <button class="btn btn-primary sub-confirm-time" onclick="confirmSubPopupFine(${periodIdx},'${pidA}','${pidB}')">Confirm</button>`;
-      } else { pickerHtml = '<div style="text-align:center;color:var(--fg2);font-size:12px;padding:8px">Time window too small at this increment.</div>'; }
+      } else { pickerHtml = '<div style="text-align:center;color:var(--fg2);font-size:12px;padding:8px">No room for a timed sub in this window.</div>'; }
     } else { pickerHtml = '<div style="text-align:center;color:var(--fg2);font-size:12px;padding:8px">Set period duration first<br><button class="btn btn-sm btn-outline" style="margin-top:8px" onclick="closeSubPopup();openPeriodDurationPrompt()">Set Duration</button></div>'; }
   }
   overlay.innerHTML = `<div class="modal sub-popup" role="dialog" aria-label="Substitution" aria-modal="true">
@@ -2914,33 +3005,13 @@ function setSubInc(sec) {
   if (currentPlan && ctx) { currentPlan.periodIncrement = sec; Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan); }
   document.querySelectorAll('.sub-inc').forEach(b => b.classList.remove('active'));
   document.querySelector(`.sub-inc[onclick="setSubInc(${sec})"]`)?.classList.add('active');
-  // Recalculate bounds with new increment
-  const pd = getActivePeriodDuration();
-  const tS = parseFloat(document.getElementById('subEntryStart')?.value || 0);
-  const tE = parseFloat(document.getElementById('subEntryEnd')?.value || 1);
-  if (!pd) return;
-  const newMin = Math.ceil((tS * pd + 1) / sec) * sec;
-  const newMax = Math.floor((tE * pd - 1) / sec) * sec;
-  const minEl = document.getElementById('subTimeMin');
-  const maxEl = document.getElementById('subTimeMax');
-  const secEl = document.getElementById('subTimeSec');
-  const dispEl = document.getElementById('subTimeDisplay');
-  if (minEl) minEl.value = newMin;
-  if (maxEl) maxEl.value = newMax;
-  // Snap current value to nearest valid step
-  if (secEl && dispEl) {
-    let cur = Math.round(parseFloat(secEl.value) / sec) * sec;
-    cur = Math.max(newMin, Math.min(cur, newMax));
-    secEl.value = cur;
-    dispEl.textContent = fractionToDisplay(cur / pd, pd);
-  }
+  // No snap — just changes step size for future +/- presses
 }
 
 function toggleSubTimeDisplay() {
   if (!currentPlan || !ctx) return;
   currentPlan.timeDisplay = getActiveTimeDisplay() === 'elapsed' ? 'remaining' : 'elapsed';
   Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
-  // Update label and time display in popup
   const label = document.querySelector('.sub-time-label');
   if (label) label.firstChild.textContent = currentPlan.timeDisplay + ' ';
   const secEl = document.getElementById('subTimeSec');
@@ -2955,18 +3026,187 @@ function confirmSubPopup(periodIdx, pidA, pidB, fraction) { closeSubPopup(); exe
 function confirmSubPopupFine(periodIdx, pidA, pidB) {
   const secEl = document.getElementById('subTimeSec'), pd = getActivePeriodDuration();
   if (!secEl || !pd) { closeSubPopup(); return; }
-  closeSubPopup(); executeMidPeriodSub(periodIdx, pidA, pidB, timeToFraction(parseFloat(secEl.value), pd));
+  const sec = parseFloat(secEl.value);
+  const minS = parseFloat(document.getElementById('subTimeMin')?.value || 0);
+  const maxS = parseFloat(document.getElementById('subTimeMax')?.value || pd);
+  // At either boundary → treat as swap (no zero-length entries)
+  if (sec <= minS || sec >= maxS) { closeSubPopup(); executeSwap(periodIdx, pidA, pidB); return; }
+  closeSubPopup(); executeMidPeriodSub(periodIdx, pidA, pidB, timeToFraction(sec, pd));
 }
 function stepSubTime(dir) {
   const secEl = document.getElementById('subTimeSec'), dispEl = document.getElementById('subTimeDisplay');
   if (!secEl || !dispEl) return;
   const pd = getActivePeriodDuration(), inc = getActivePeriodIncrement(); if (!pd) return;
-  const minSec = parseFloat(document.getElementById('subTimeMin')?.value || inc);
-  const maxSec = parseFloat(document.getElementById('subTimeMax')?.value || (pd - inc));
+  const minSec = parseFloat(document.getElementById('subTimeMin')?.value || 1);
+  const maxSec = parseFloat(document.getElementById('subTimeMax')?.value || (pd - 1));
   let sec = Math.max(minSec, Math.min(parseFloat(secEl.value) + dir * inc, maxSec));
   secEl.value = sec; dispEl.textContent = fractionToDisplay(sec / pd, pd);
 }
 function clearSwap() { swapSelection = null; renderLineup(); }
+
+// -- Player Time Detail Popup -------------------------------------------
+
+function openPlayerTimePopup(periodIdx, pid) {
+  if (!currentPlan || !roster) return;
+  document.getElementById('playerTimePopup')?.remove();
+
+  const plan = currentPlan;
+  const pd = getActivePeriodDuration() || 720;
+  const posColors = getPositionColors(roster.positions);
+  const periodLabel = getPeriodLabel(plan.numPeriods);
+  const playerName = displayName(pid);
+  const timeDisp = getActiveTimeDisplay();
+
+  const fmtTime = (frac) => timeDisp === 'remaining'
+    ? fractionToRemaining(frac, pd) : fractionToElapsed(frac, pd);
+
+  // Build content for each period
+  let periodsHtml = '';
+  let gameTotalCredit = 0;
+  let hasAnyReset = false;
+
+  for (let pi = 0; pi < plan.periodAssignments.length; pi++) {
+    const pa = plan.periodAssignments[pi];
+    const isCurrent = pi === periodIdx;
+
+    // Collect entries for this player in this period
+    const entries = [];
+    for (const [pos, occ] of Object.entries(pa.assignments)) {
+      const occupants = Array.isArray(occ) ? occ : [{ pid: occ, timeIn: 0, timeOut: 1 }];
+      for (const e of occupants) {
+        if (e.pid === pid) entries.push({ pos, timeIn: e.timeIn, timeOut: e.timeOut });
+      }
+    }
+    entries.sort((a, b) => a.timeIn - b.timeIn);
+
+    let periodCredit = entries.reduce((s, e) => s + (e.timeOut - e.timeIn), 0);
+    gameTotalCredit += periodCredit;
+
+    // Bar segments with gap spacers
+    let barHtml = '';
+    let cursor = 0;
+    for (const e of entries) {
+      if (e.timeIn > cursor + 0.001) {
+        barHtml += `<span class="ptp-seg ptp-gap" style="width:${((e.timeIn - cursor) * 100).toFixed(1)}%"></span>`;
+      }
+      const w = ((e.timeOut - e.timeIn) * 100).toFixed(1);
+      barHtml += `<span class="ptp-seg" style="width:${w}%;background:${posColors[e.pos] || 'var(--fg2)'}"></span>`;
+      cursor = e.timeOut;
+    }
+    if (cursor < 0.999) {
+      barHtml += `<span class="ptp-seg ptp-gap" style="width:${((1 - cursor) * 100).toFixed(1)}%"></span>`;
+    }
+    if (entries.length === 0) {
+      barHtml = '<span class="ptp-seg ptp-gap" style="width:100%"></span>';
+    }
+
+    // Time markers
+    const transitions = new Set();
+    for (const e of entries) { transitions.add(e.timeIn); transitions.add(e.timeOut); }
+    // Remove period edges — only show internal transition times
+    transitions.delete(0);
+    transitions.delete(1);
+    let markersHtml = '';
+    let ticksHtml = '';
+    for (const t of [...transitions].sort((a, b) => a - b)) {
+      markersHtml += `<span class="ptp-marker" style="left:${(t * 100).toFixed(1)}%">${fmtTime(t)}</span>`;
+      ticksHtml += `<span class="ptp-tick" style="left:${(t * 100).toFixed(1)}%"></span>`;
+    }
+
+    // Detail rows
+    let detailHtml = '';
+    for (const e of entries) {
+      const credit = e.timeOut - e.timeIn;
+      detailHtml += `<div class="ptp-detail-row">
+        <span class="ptp-swatch" style="background:${posColors[e.pos] || 'var(--fg2)'}"></span>
+        <span class="ptp-pos">${e.pos}</span>
+        <span class="ptp-range">${fmtTime(e.timeIn)} → ${fmtTime(e.timeOut)}</span>
+        <span class="ptp-pct">${Math.round(credit * 100)}%</span>
+      </div>`;
+    }
+
+    const periodTime = fractionToElapsed(periodCredit, pd);
+    const periodTotal = fractionToElapsed(1, pd);
+    const periodPct = Math.round(periodCredit * 100);
+    const isClean = entries.length === 1 && entries[0].timeIn < 0.001 && entries[0].timeOut > 0.999;
+    const needsReset = entries.length > 0 && !isClean;
+    const resetBtn = needsReset
+      ? `<button class="ptp-reset-btn" onclick="resetPlayerPeriodUI(${pi},'${pid}',${periodIdx})">Reset ${periodLabel} ${pa.period}</button>` : '';
+
+    periodsHtml += `<div class="ptp-period-block${isCurrent ? ' ptp-current' : ''}">
+      <div class="ptp-period-hdr">
+        <span>${periodLabel} ${pa.period}</span>
+        <span class="ptp-period-stat">${periodTime} / ${periodTotal} · ${periodPct}%</span>
+      </div>
+      <div class="ptp-bar-wrap">
+        <div class="ptp-bar">${barHtml}<div class="ptp-ticks">${ticksHtml}</div></div>
+        <div class="ptp-markers">${markersHtml}</div>
+      </div>
+      ${entries.length > 0 ? `<div class="ptp-details">${detailHtml}</div>` : '<div class="ptp-bench-note">Bench</div>'}
+      ${resetBtn}
+    </div>`;
+    if (needsReset) hasAnyReset = true;
+  }
+
+  // Game total
+  const gameTotalTime = fractionToElapsed(gameTotalCredit, pd);
+  const gameFullTime = fractionToElapsed(plan.numPeriods, pd);
+  const gamePct = Math.round((gameTotalCredit / plan.numPeriods) * 100);
+  const resetAllBtn = hasAnyReset
+    ? `<button class="ptp-reset-all" onclick="resetPlayerAllPeriodsUI('${pid}',${periodIdx})">Reset All Quarters</button>` : '';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'playerTimePopup';
+  overlay.dataset.periodIdx = periodIdx;
+  overlay.dataset.pid = pid;
+  overlay.innerHTML = `<div class="modal ptp-popup">
+    <div class="ptp-header">
+      <span class="ptp-name">${esc(playerName)}</span>
+      <button class="ptp-time-toggle" onclick="togglePopupTimeDisplay()" title="Switch elapsed/remaining">${timeDisp === 'elapsed' ? '↑ elapsed' : '↓ remaining'}</button>
+    </div>
+    ${periodsHtml}
+    <div class="ptp-game-total">Game: ${gameTotalTime} / ${gameFullTime} · ${gamePct}%</div>
+    ${resetAllBtn}
+    <button class="sub-cancel" onclick="document.getElementById('playerTimePopup')?.remove()">Close</button>
+  </div>`;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+/** Toggle elapsed/remaining in the popup and re-render it */
+
+function resetPlayerPeriodUI(periodIdx, pid, origPeriodIdx) {
+  resetPlayerInPeriod(periodIdx, pid);
+  renderLineup();
+  document.getElementById("playerTimePopup")?.remove();
+  openPlayerTimePopup(origPeriodIdx, pid);
+}
+
+function resetPlayerAllPeriodsUI(pid, origPeriodIdx) {
+  if (!currentPlan) return;
+  for (let i = 0; i < currentPlan.periodAssignments.length; i++) {
+    resetPlayerInPeriod(i, pid);
+  }
+  renderLineup();
+  document.getElementById("playerTimePopup")?.remove();
+  openPlayerTimePopup(origPeriodIdx, pid);
+}
+
+function togglePopupTimeDisplay() {
+  if (!currentPlan || !ctx) return;
+  currentPlan.timeDisplay = getActiveTimeDisplay() === 'elapsed' ? 'remaining' : 'elapsed';
+  Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+  // Find the popup's current periodIdx and pid from the DOM, then re-open
+  const popup = document.getElementById('playerTimePopup');
+  if (!popup) return;
+  const data = popup.querySelector('.ptp-popup')?.dataset;
+  // We'll store these as data attributes
+  const pi = parseInt(popup.dataset.periodIdx || 0);
+  const pid = popup.dataset.pid || '';
+  popup.remove();
+  if (pid) openPlayerTimePopup(pi, pid);
+}
 
 // -- Tracking Mode Settings ---------------------------------------------
 
@@ -3062,32 +3302,58 @@ function toggleGameClock() {
 }
 
 function openPeriodDurationPrompt() {
+  closeCustomModal();
   const current = getActivePeriodDuration();
   const m = Math.floor(current / 60);
   const s = current % 60;
-  const display = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-  showPromptModal({
-    title: 'Period Duration',
-    message: 'Enter period length as MM:SS (e.g. 12:00).',
-    placeholder: 'MM:SS',
-    defaultValue: display,
-    confirmLabel: 'Set',
-    onConfirm: (val) => {
-      let secs;
-      if (val.includes(':')) {
-        const parts = val.split(':');
-        secs = (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0);
-      } else {
-        secs = (parseFloat(val) || 0) * 60;
-      }
-      if (secs <= 0) return;
-      if (currentPlan && ctx) {
-        currentPlan.periodDuration = Math.round(secs);
-        Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
-        renderLineup();
-      }
-    }
-  });
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay'; overlay.id = 'customModal';
+  overlay.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+    <h2>Period Duration</h2>
+    <div class="dur-input-row">
+      <div class="dur-field">
+        <button class="dur-step" onclick="stepDurField('durMin',1)">▲</button>
+        <input type="number" id="durMin" value="${m}" min="0" max="99" inputmode="numeric" class="dur-num">
+        <button class="dur-step" onclick="stepDurField('durMin',-1)">▼</button>
+        <span class="dur-label">min</span>
+      </div>
+      <span class="dur-colon">:</span>
+      <div class="dur-field">
+        <button class="dur-step" onclick="stepDurField('durSec',1)">▲</button>
+        <input type="number" id="durSec" value="${String(s).padStart(2,'0')}" min="0" max="59" inputmode="numeric" class="dur-num">
+        <button class="dur-step" onclick="stepDurField('durSec',-1)">▼</button>
+        <span class="dur-label">sec</span>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeCustomModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="savePeriodDuration()">Set</button>
+    </div>
+  </div>`;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCustomModal(); });
+  document.body.appendChild(overlay);
+}
+
+function stepDurField(id, dir) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  let val = parseInt(el.value) || 0;
+  val = Math.max(parseInt(el.min), Math.min(val + dir, parseInt(el.max)));
+  el.value = id === 'durSec' ? String(val).padStart(2, '0') : val;
+}
+
+function savePeriodDuration() {
+  const m = parseInt(document.getElementById('durMin')?.value) || 0;
+  const s = parseInt(document.getElementById('durSec')?.value) || 0;
+  const secs = m * 60 + s;
+  if (secs <= 0) return;
+  closeCustomModal();
+  if (currentPlan && ctx) {
+    currentPlan.periodDuration = secs;
+    Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+    renderLineup();
+  }
 }
 
 /** Save season-level tracking mode defaults. */
@@ -3563,7 +3829,7 @@ function renderSeasonGames(games) {
           <div class="text-sm text-muted">${detailLine}</div>
         </div>
         ${wldHtml}
-        <span class="fairness-badge" style="color:${fsColor};border-color:${fsColor}" title="Spread: max periods played minus min">\u00B1${spread}</span>
+        <span class="fairness-badge" style="color:${fsColor};border-color:${fsColor}" title="Spread: max periods played minus min">\u00B1${Math.round(spread)}</span>
         <button class="btn-ghost text-sm" onclick="viewPastGame('${gidEsc}')" style="color:var(--accent)">View</button>
       </div>
     `;
@@ -4355,10 +4621,11 @@ function openSettings() {
         </div>
         <div class="settings-row">
           <span class="settings-label">Period length</span>
-          <input type="text" id="settingsPeriodDuration" inputmode="numeric" placeholder="MM:SS"
-            value="${(() => { const d = settings.defaultPeriodDuration || 720; const m = Math.floor(d/60); const s = d%60; return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0'); })()}"
-            onchange="setDefaultPeriodDuration(this.value)"
-            style="width:80px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:13px;padding:6px 8px">
+          <div class="dur-compact">
+            <input type="number" id="settingsDurMin" value="${Math.floor((settings.defaultPeriodDuration || 720) / 60)}" min="0" max="99" inputmode="numeric" class="dur-num-sm" onchange="saveSettingsDuration()">
+            <span>:</span>
+            <input type="number" id="settingsDurSec" value="${String((settings.defaultPeriodDuration || 720) % 60).padStart(2,'0')}" min="0" max="59" inputmode="numeric" class="dur-num-sm" onchange="saveSettingsDuration()">
+          </div>
         </div>
       </div>
 
@@ -4512,18 +4779,15 @@ function setDefaultTrackingMode(mode) {
   }
 }
 
-function setDefaultPeriodDuration(val) {
-  const settings = loadSettings();
-  // Parse MM:SS or plain number (minutes)
-  let secs = 720;
-  if (val.includes(':')) {
-    const parts = val.split(':');
-    secs = (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0);
-  } else {
-    secs = (parseFloat(val) || 12) * 60;
+function saveSettingsDuration() {
+  const m = parseInt(document.getElementById('settingsDurMin')?.value) || 0;
+  const s = parseInt(document.getElementById('settingsDurSec')?.value) || 0;
+  const secs = m * 60 + s;
+  if (secs > 0) {
+    const settings = loadSettings();
+    settings.defaultPeriodDuration = secs;
+    saveSettings(settings);
   }
-  if (secs > 0) settings.defaultPeriodDuration = Math.round(secs);
-  saveSettings(settings);
 }
 
 function resetGameDayDefaults() {
