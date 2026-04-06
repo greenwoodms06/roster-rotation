@@ -120,15 +120,17 @@ function diffColor(diff) {
 
 /** Get tracking mode defaults from the current season object. */
 function getSeasonTrackingDefaults() {
-  const globalDef = loadSettings().defaultTrackingMode || 'simple';
-  if (!ctx) return { trackingMode: globalDef, periodDuration: null, periodIncrement: 60, timeDisplay: 'elapsed', clockEnabled: false, clockAutoFill: true };
+  const settings = loadSettings();
+  const globalDef = settings.defaultTrackingMode || 'simple';
+  const globalTimeDisp = settings.defaultClockDirection === 'up' ? 'elapsed' : 'remaining';
+  if (!ctx) return { trackingMode: globalDef, periodDuration: null, periodIncrement: 60, timeDisplay: globalTimeDisp, clockEnabled: false, clockAutoFill: true };
   const seasons = Storage.loadSeasons(ctx.teamSlug);
   const season = seasons.find(s => s.slug === ctx.seasonSlug);
   return {
     trackingMode: season?.trackingMode || globalDef,
     periodDuration: season?.periodDuration || null,
     periodIncrement: season?.periodIncrement || 60,
-    timeDisplay: season?.timeDisplay || 'elapsed',
+    timeDisplay: season?.timeDisplay || globalTimeDisp,
     clockEnabled: season?.clockEnabled || false,
     clockAutoFill: season?.clockAutoFill !== false,
   };
@@ -458,6 +460,7 @@ function updateBackupIndicator() {
  *   getPeriodLabel(3, true)  => 'P'
  */
 function getPeriodLabel(n, short) {
+  if (n === 1) return short ? 'G' : 'Game';
   if (n === 4) return short ? 'Q' : 'Quarter';
   if (n === 2) return short ? 'H' : 'Half';
   return short ? 'P' : 'Period';
@@ -465,6 +468,7 @@ function getPeriodLabel(n, short) {
 
 /** Plural lowercase: "quarters", "halves", "periods" */
 function getPeriodLabelPlural(n) {
+  if (n === 1) return 'game';
   if (n === 4) return 'quarters';
   if (n === 2) return 'halves';
   return 'periods';
@@ -1064,8 +1068,9 @@ function closeTeamModal() {
 }
 
 function saveTeam() {
-  const name = document.getElementById('teamNameInput').value.trim();
-  if (!name) return;
+  const el = document.getElementById('teamNameInput');
+  const name = el.value.trim();
+  if (!name) { pulseInvalid(el); return; }
 
   const slug = slugify(name);
   if (!slug) return;
@@ -1180,16 +1185,19 @@ function handlePositionBlur() {
 }
 
 function saveSeason() {
-  const name = document.getElementById('seasonNameInput').value.trim();
-  if (!name) return;
+  const el = document.getElementById('seasonNameInput');
+  const name = el.value.trim();
+  if (!name) { pulseInvalid(el); return; }
 
   const slug = slugify(name);
-  if (!slug) return;
+  if (!slug) { pulseInvalid(el); return; }
 
-  const posStr = document.getElementById('positionsInput').value;
+  const posEl = document.getElementById('positionsInput');
+  const posStr = posEl.value;
   const result = sanitizePositions(posStr);
   const positions = result.positions;
   if (positions.length < 2) {
+    pulseInvalid(posEl);
     showToast('Need at least 2 positions', 'error');
     return;
   }
@@ -1380,8 +1388,9 @@ function cycleWeight(pos) {
 
 function savePlayer() {
   if (!ctx || !roster) return;
-  const name = document.getElementById('modalPlayerName').value.trim();
-  if (!name) return;
+  const el = document.getElementById('modalPlayerName');
+  const name = el.value.trim();
+  if (!name) { pulseInvalid(el); return; }
 
   const number = document.getElementById('modalPlayerNum').value.trim().slice(0, 2);
 
@@ -3551,10 +3560,21 @@ function printLineup() {
 // -- Season Summary -------------------------------------------------
 // -- Position colors for charts (deterministic from position list) --
 function getPositionColors(positions) {
+  // 12 perceptually distinct colors optimized for dark backgrounds.
+  // Based on ColorBrewer qualitative palettes, tuned for saturation/brightness on dark.
   const palette = [
-    '#00e676', '#40c4ff', '#ff6e40', '#fdd835',
-    '#e040fb', '#ff5252', '#69f0ae', '#448aff',
-    '#ffab40', '#ea80fc', '#b2ff59', '#18ffff',
+    '#00e676', // green
+    '#42a5f5', // blue
+    '#ef5350', // red
+    '#ffca28', // amber
+    '#ab47bc', // purple
+    '#26c6da', // cyan
+    '#ff7043', // deep orange
+    '#66bb6a', // light green
+    '#ec407a', // pink
+    '#8d6e63', // brown
+    '#78909c', // blue grey
+    '#d4e157', // lime
   ];
   const colors = {};
   positions.forEach((pos, i) => { colors[pos] = palette[i % palette.length]; });
@@ -3587,7 +3607,7 @@ function renderSeason() {
   const allGames = Storage.loadAllGames(ctx.teamSlug, ctx.seasonSlug);
 
   if (allGames.length === 0) {
-    el.innerHTML = '<div class="empty-state"><p>Play some games to see season stats</p></div>';
+    el.innerHTML = '<div class="empty-state"><p><strong>No games yet</strong></p><p class="text-sm text-muted">Generate and save lineups from the <strong>Game Day</strong> tab. Season stats will appear here as you play games.</p></div>';
     return;
   }
 
@@ -4470,6 +4490,16 @@ function welcomeEmptyState(message) {
   return `<p>${message}</p><button class="btn btn-outline" style="margin-top:12px" onclick="openContextPicker()">Select Team</button>`;
 }
 
+/** Pulse a form field red to indicate invalid input. */
+function pulseInvalid(el) {
+  if (!el) return;
+  el.classList.remove("field-invalid");
+  void el.offsetWidth; /* force reflow */
+  el.classList.add("field-invalid");
+  el.focus();
+  setTimeout(() => el.classList.remove("field-invalid"), 600);
+}
+
 function esc(str) {
   const d = document.createElement('div');
   d.textContent = str;
@@ -4563,7 +4593,7 @@ function openSettings() {
 
       <div class="settings-section">
         <div class="settings-section-title" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Game Day Defaults</span>
+          <span>Game Structure</span>
           <button class="btn-ghost" style="font-size:11px;padding:2px 6px;text-transform:none;letter-spacing:0" onclick="resetGameDayDefaults()">Reset</button>
         </div>
         <div class="settings-row">
@@ -4575,7 +4605,7 @@ function openSettings() {
           </select>
         </div>
         <div class="settings-row">
-          <span class="settings-label">Default format</span>
+          <span class="settings-label">Field format</span>
           <select id="settingsDefaultFormat" onchange="setDefaultFormat(this.value)">
             ${(SPORTS[settings.defaultSport] || SPORTS.soccer).formats.map(f =>
               `<option value="${f.key}"${settings.defaultFormat === f.key ? ' selected' : ''}>${f.name}</option>`
@@ -4583,12 +4613,21 @@ function openSettings() {
           </select>
         </div>
         <div class="settings-row">
-          <span class="settings-label">Period format</span>
+          <span class="settings-label">Game format</span>
           <select id="settingsDefaultPeriods" onchange="setDefaultPeriods(this.value)">
             <option value="4"${settings.defaultPeriods === 4 ? ' selected' : ''}>4 Quarters</option>
             <option value="3"${settings.defaultPeriods === 3 ? ' selected' : ''}>3 Periods</option>
             <option value="2"${settings.defaultPeriods === 2 ? ' selected' : ''}>2 Halves</option>
+            <option value="1"${settings.defaultPeriods === 1 ? ' selected' : ''}>1 Game</option>
           </select>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Segment length</span>
+          <div class="dur-compact">
+            <input type="number" id="settingsDurMin" value="${Math.floor((settings.defaultPeriodDuration || 720) / 60)}" min="0" max="99" inputmode="numeric" class="dur-num-sm" onchange="saveSettingsDuration()">
+            <span>:</span>
+            <input type="number" id="settingsDurSec" value="${String((settings.defaultPeriodDuration || 720) % 60).padStart(2,'0')}" min="0" max="59" inputmode="numeric" class="dur-num-sm" onchange="saveSettingsDuration()">
+          </div>
         </div>
         <div class="settings-row">
           <span class="settings-label">Starter mode default</span>
@@ -4603,14 +4642,18 @@ function openSettings() {
           </div>
         </div>
         <div class="settings-row">
-          <span class="settings-label">Max periods / player</span>
+          <span class="settings-label">Max segments / player</span>
           <select id="settingsGlobalMaxPeriods" onchange="setDefaultGlobalMaxPeriods(this.value)">
             <option value=""${!settings.defaultGlobalMaxPeriods ? ' selected' : ''}>No Limit</option>
-            ${Array.from({ length: settings.defaultPeriods - 1 }, (_, i) => i + 1).map(v =>
+            ${Array.from({ length: Math.max(1, settings.defaultPeriods - 1) }, (_, i) => i + 1).map(v =>
               `<option value="${v}"${settings.defaultGlobalMaxPeriods === v ? ' selected' : ''}>${v}</option>`
             ).join('')}
           </select>
         </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Tracking & Clock</div>
         <div class="settings-row">
           <span class="settings-label">Sub tracking</span>
           <div class="tri-toggle" id="settingsTrackingToggle">
@@ -4620,11 +4663,10 @@ function openSettings() {
           </div>
         </div>
         <div class="settings-row">
-          <span class="settings-label">Period length</span>
-          <div class="dur-compact">
-            <input type="number" id="settingsDurMin" value="${Math.floor((settings.defaultPeriodDuration || 720) / 60)}" min="0" max="99" inputmode="numeric" class="dur-num-sm" onchange="saveSettingsDuration()">
-            <span>:</span>
-            <input type="number" id="settingsDurSec" value="${String((settings.defaultPeriodDuration || 720) % 60).padStart(2,'0')}" min="0" max="59" inputmode="numeric" class="dur-num-sm" onchange="saveSettingsDuration()">
+          <span class="settings-label">Clock direction</span>
+          <div class="tri-toggle">
+            <button class="tri-opt${(settings.defaultClockDirection || 'down') === 'down' ? ' active' : ''}" onclick="setDefaultClockDirection('down')">↓ Down</button>
+            <button class="tri-opt${settings.defaultClockDirection === 'up' ? ' active' : ''}" onclick="setDefaultClockDirection('up')">↑ Up</button>
           </div>
         </div>
       </div>
@@ -4790,6 +4832,14 @@ function saveSettingsDuration() {
   }
 }
 
+function setDefaultClockDirection(dir) {
+  const settings = loadSettings();
+  settings.defaultClockDirection = dir;
+  saveSettings(settings);
+  closeDynamicModal('settingsModal');
+  openSettings();
+}
+
 function resetGameDayDefaults() {
   const settings = loadSettings();
   settings.defaultPeriods = 4;
@@ -4800,6 +4850,7 @@ function resetGameDayDefaults() {
   settings.defaultGlobalMaxPeriods = null;
   settings.defaultTrackingMode = 'simple';
   settings.defaultPeriodDuration = 720;
+  settings.defaultClockDirection = 'down';
   saveSettings(settings);
   closeDynamicModal('settingsModal');
   openSettings();

@@ -35,7 +35,8 @@
       </div>
       <ul class="player-list" id="rosterList"></ul>
       <div class="empty-state hidden" id="rosterEmpty">
-        <p>Add your players to get started</p>
+        <p><strong>No players yet</strong></p>
+        <p class="text-sm text-muted">Tap <strong>+ Add Player</strong> above to add your first player. You need at least as many players as positions to generate a lineup.</p>
       </div>
     </div>
     <input type="file" id="fileImportInput" accept=".json,.txt" class="hidden" onchange="handleFileImport(event)">
@@ -51,11 +52,12 @@
           <input type="date" id="gameDate">
         </div>
         <div>
-          <label for="gamePeriods">Format</label>
+          <label for="gamePeriods">Game format</label>
           <select id="gamePeriods">
             <option value="4">4 Quarters</option>
             <option value="3">3 Periods</option>
             <option value="2">2 Halves</option>
+            <option value="1">1 Game</option>
           </select>
         </div>
       </div>
@@ -103,7 +105,8 @@
   <div class="tab-content hidden" id="tab-lineup">
     <div id="lineupContent">
       <div class="empty-state">
-        <p>Generate a lineup from the Game Day tab</p>
+        <p><strong>No lineup yet</strong></p>
+        <p class="text-sm text-muted">Go to the <strong>Game Day</strong> tab, check your available players, and tap <strong>Generate</strong> to create a fair lineup.</p>
       </div>
     </div>
   </div>
@@ -117,7 +120,8 @@
   <div class="tab-content hidden" id="tab-field">
     <div id="fieldContent">
       <div class="empty-state">
-        <p>Create a team and season to see the field</p>
+        <p><strong>No field view yet</strong></p>
+        <p class="text-sm text-muted">Generate a lineup first, then switch here to see your players on the field.</p>
       </div>
     </div>
   </div>
@@ -156,7 +160,7 @@
     </h2>
     <div style="margin-bottom:12px;display:flex;gap:8px;align-items:flex-end">
       <div style="flex:1">
-        <label for="modalPlayerName">Player Name</label>
+        <label for="modalPlayerName" class="field-required">Player Name</label>
         <input type="text" id="modalPlayerName" placeholder="e.g. Alex" autocomplete="off">
       </div>
       <div style="width:56px">
@@ -195,7 +199,7 @@
       <button class="close-btn" onclick="closeTeamModal()" aria-label="Close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
     </h2>
     <div style="margin-bottom:12px">
-      <label for="teamNameInput">Team Name</label>
+      <label for="teamNameInput" class="field-required">Team Name</label>
       <input type="text" id="teamNameInput" placeholder="e.g. U10 Lightning" autocomplete="off">
     </div>
     <div class="field-row mt-12">
@@ -212,7 +216,7 @@
       <button class="close-btn" onclick="closeSeasonModal()" aria-label="Close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
     </h2>
     <div style="margin-bottom:12px">
-      <label for="seasonNameInput">Season Name</label>
+      <label for="seasonNameInput" class="field-required">Season Name</label>
       <input type="text" id="seasonNameInput" placeholder="e.g. Spring 2026" autocomplete="off">
     </div>
     <div style="margin-bottom:12px">

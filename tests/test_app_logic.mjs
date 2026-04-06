@@ -8,9 +8,11 @@ suite('getPeriodLabel');
   assertEqual(run(ctx, "getPeriodLabel(4)"), 'Quarter', '4 = Quarter');
   assertEqual(run(ctx, "getPeriodLabel(2)"), 'Half', '2 = Half');
   assertEqual(run(ctx, "getPeriodLabel(3)"), 'Period', '3 = Period');
+  assertEqual(run(ctx, "getPeriodLabel(1)"), 'Game', '1 = Game');
   assertEqual(run(ctx, "getPeriodLabel(4, true)"), 'Q', '4 short = Q');
   assertEqual(run(ctx, "getPeriodLabel(2, true)"), 'H', '2 short = H');
   assertEqual(run(ctx, "getPeriodLabel(3, true)"), 'P', '3 short = P');
+  assertEqual(run(ctx, "getPeriodLabel(1, true)"), 'G', '1 short = G');
 }
 
 suite('getPeriodLabelPlural');
@@ -18,6 +20,7 @@ suite('getPeriodLabelPlural');
   assertEqual(run(ctx, "getPeriodLabelPlural(4)"), 'quarters', '4 = quarters');
   assertEqual(run(ctx, "getPeriodLabelPlural(2)"), 'halves', '2 = halves');
   assertEqual(run(ctx, "getPeriodLabelPlural(3)"), 'periods', '3 = periods');
+  assertEqual(run(ctx, "getPeriodLabelPlural(1)"), 'game', '1 = game');
 }
 
 suite('getSpecialPosition');

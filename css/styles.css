@@ -1830,3 +1830,17 @@ label {
   font-size: 13px; cursor: pointer; text-align: center;
   font-family: 'DM Sans', sans-serif;
 }
+
+/* -- Required Field Validation ------------------------- */
+.field-required::after {
+  content: ' *'; color: var(--danger); font-weight: 400;
+}
+@keyframes fieldShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+.field-invalid {
+  border-color: var(--danger) !important;
+  animation: fieldShake 0.3s ease-out;
+}
