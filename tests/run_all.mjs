@@ -11,6 +11,7 @@ const suites = [
   ['Formations', './test_formations.mjs'],
   ['Storage',    './test_storage.mjs'],
   ['Credit',     './test_credit.mjs'],
+  ['Swap/Sub',   './test_swap.mjs'],
   ['App Logic',  './test_app_logic.mjs'],
 ];
 

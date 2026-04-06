@@ -927,9 +927,12 @@ label {
 
 .game-history-item {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 0; border-bottom: 1px solid var(--border-subtle);
+  padding: 10px 0; border-bottom: 1px solid var(--border-subtle); gap: 6px;
 }
 .game-history-item:last-child { border-bottom: none; }
+.game-history-item > div:first-child > div:first-child {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 .fairness-badge {
   font-family: 'JetBrains Mono', monospace;
@@ -1457,3 +1460,220 @@ label {
 .install-banner-text span { font-size: 12px; color: var(--fg2); }
 .install-banner-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .install-banner-actions .btn { padding: 6px 12px; font-size: 12px; }
+
+/* -- Lineup Header (lu- prefix) ----------------------- */
+.lu-row1 {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.lu-date {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; font-weight: 600; color: var(--accent);
+  border: 1.5px solid var(--accent); border-radius: 6px;
+  padding: 6px 10px; white-space: nowrap; flex-shrink: 0;
+}
+.lu-date.tappable { cursor: pointer; }
+.lu-date.tappable:active { background: rgba(0,230,118,0.08); }
+.lu-label {
+  flex: 1; min-width: 0; width: auto;
+  font-size: 14px; font-weight: 600; padding: 6px 10px;
+  background: transparent; border: 1px solid var(--border);
+  border-radius: 6px; color: var(--fg);
+  font-family: 'DM Sans', sans-serif;
+}
+.lu-label::placeholder { color: var(--fg2); font-weight: 400; }
+.lu-row-even {
+  display: flex; gap: 6px; margin-bottom: 8px;
+}
+.lu-row-even > * { flex: 1; }
+.lu-btn-row {
+  display: flex; gap: 6px; margin-bottom: 8px;
+  justify-content: space-between;
+}
+.lu-btn-row .lu-btn-left { flex: 0 0 auto; }
+.lu-btn-row .lu-btn-right { display: flex; gap: 6px; }
+.lu-btn {
+  padding: 7px 4px; font-size: 12px; font-weight: 600;
+  background: var(--bg2); border: 1.5px solid var(--border);
+  border-radius: 6px; color: var(--fg2); cursor: pointer;
+  text-align: center; transition: all 0.12s;
+  font-family: 'DM Sans', sans-serif;
+}
+.lu-btn:active { border-color: var(--accent); color: var(--accent); }
+.lu-btn.lu-btn-on {
+  background: rgba(0,230,118,0.12); border-color: var(--accent); color: var(--accent);
+}
+.lu-mode {
+  padding: 7px 4px; font-size: 12px; font-weight: 600;
+  background: var(--bg); border: 1.5px solid var(--border);
+  border-radius: 6px; color: var(--fg2); cursor: pointer;
+  text-align: center; transition: all 0.12s;
+  font-family: 'JetBrains Mono', monospace;
+}
+.lu-mode.active {
+  background: rgba(0,230,118,0.12); border-color: var(--accent); color: var(--accent);
+}
+.lu-mode:not(.active):active { background: var(--hover-strong); }
+
+/* -- Game Clock --------------------------------------- */
+.lu-clock {
+  display: flex; align-items: center; justify-content: center;
+  gap: 6px; margin-bottom: 8px; padding: 6px 10px;
+  background: var(--bg2); border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+.lu-clock-time {
+  font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600;
+  color: var(--fg); min-width: 50px; text-align: center;
+}
+.lu-clock-time.running { color: var(--accent); }
+.lu-clock-time.done { animation: clockPulse 1s ease-in-out infinite; }
+@keyframes clockPulse {
+  0%, 100% { color: var(--danger); }
+  50% { color: var(--fg); }
+}
+.lu-clock-sep {
+  font-size: 14px; color: var(--fg2); margin: 0 2px;
+}
+.lu-clock-dur {
+  font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600;
+  color: var(--accent); background: transparent; border: 1px solid var(--accent);
+  border-radius: 4px; padding: 2px 6px; cursor: pointer;
+}
+.lu-clock-dur:active { background: rgba(0,230,118,0.1); }
+.lu-clock-btn {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--fg2); font-size: 14px;
+  width: 32px; height: 32px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1; text-align: center;
+}
+.lu-clock-btn:active { border-color: var(--accent); color: var(--accent); }
+
+/* -- Lineup Section Header ---------------------------- */
+.lu-lineup-hdr {
+  display: flex; align-items: center; gap: 8px;
+  margin: 12px 0 8px; padding: 0 2px;
+}
+.lu-mode-select {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;
+  background: var(--bg); border: 1.5px solid var(--border); border-radius: 6px;
+  color: var(--fg); padding: 5px 8px; width: auto; cursor: pointer;
+}
+
+/* -- Position Color Bar & Slot Timeline --------------- */
+.pos-color-bar {
+  width: 3px; align-self: stretch; min-height: 24px;
+  border-radius: 2px; margin-right: 4px;
+  flex-shrink: 0; flex-grow: 0;
+}
+.slot-timeline {
+  display: flex; height: 12px; border-radius: 3px; overflow: hidden;
+  flex: 0 0 60px; align-self: center; margin: 0 8px;
+  background: var(--bg); border: 1px solid var(--border-faint);
+}
+.tl-seg { display: block; min-width: 1px; opacity: 0.7; }
+.tl-gap { background: transparent !important; opacity: 1; }
+
+/* -- Bench Playing Time Bar --------------------------- */
+.bench-chip { position: relative; overflow: hidden; }
+.bench-time-bar {
+  position: absolute; bottom: 0; left: 0; height: 3px;
+  background: var(--accent); opacity: 0.5;
+  border-radius: 0 0 4px 4px;
+}
+
+/* -- Sub Popup ---------------------------------------- */
+.sub-popup {
+  max-width: 340px; width: calc(100% - 32px);
+  padding: 18px 16px 14px;
+}
+.sub-header {
+  font-size: 14px; font-weight: 600; color: var(--fg);
+  margin-bottom: 12px; text-align: center; line-height: 1.4;
+}
+.sub-arrow { color: var(--fg2); margin: 0 2px; }
+.sub-pos-label {
+  display: inline-block; font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; color: var(--fg2); background: var(--bg3);
+  border-radius: 4px; padding: 1px 5px; margin-left: 4px; vertical-align: middle;
+}
+.sub-replace-btn {
+  width: 100%; padding: 10px; text-align: center;
+  font-size: 13px; margin-bottom: 4px;
+}
+.sub-action-row {
+  display: flex; gap: 8px; margin-bottom: 4px;
+}
+.sub-action-btn {
+  flex: 1; padding: 10px; text-align: center; font-size: 13px;
+}
+.frac-time {
+  display: block; font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; font-weight: 400; color: var(--accent);
+  margin-top: 2px; opacity: 0.8;
+}
+.sub-divider {
+  text-align: center; font-size: 11px; color: var(--fg2);
+  margin: 8px 0; position: relative;
+}
+.sub-divider::before, .sub-divider::after {
+  content: ''; position: absolute; top: 50%;
+  width: calc(50% - 24px); height: 1px; background: var(--border);
+}
+.sub-divider::before { left: 0; }
+.sub-divider::after { right: 0; }
+.sub-fractions {
+  display: flex; gap: 6px; margin-bottom: 6px;
+}
+.sub-frac-btn {
+  flex: 1; padding: 10px 2px;
+  background: var(--bg); border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--fg);
+  font-size: 15px; font-weight: 600; cursor: pointer;
+  text-align: center; transition: all 0.12s;
+  font-family: 'DM Sans', sans-serif;
+}
+.sub-frac-btn:active { background: rgba(0,230,118,0.12); border-color: var(--accent); color: var(--accent); }
+.sub-frac-btn:disabled { opacity: 0.2; cursor: default; pointer-events: none; }
+.sub-stepper {
+  display: flex; align-items: center; gap: 10px;
+  justify-content: center; margin-bottom: 8px;
+}
+.sub-step-btn {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--bg); border: 1.5px solid var(--border);
+  color: var(--fg); font-size: 18px; font-weight: 600;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-family: 'DM Sans', sans-serif; transition: all 0.12s;
+}
+.sub-step-btn:active { border-color: var(--accent); color: var(--accent); }
+.sub-time-display {
+  font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 600;
+  color: var(--fg); min-width: 64px; text-align: center;
+}
+.sub-inc-row {
+  display: flex; gap: 4px; justify-content: center; margin-bottom: 10px;
+}
+.sub-inc {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600;
+  padding: 3px 8px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--fg2); cursor: pointer; transition: all 0.12s;
+}
+.sub-inc.active { background: rgba(0,230,118,0.12); border-color: var(--accent); color: var(--accent); }
+.sub-time-label {
+  text-align: center; font-size: 11px; color: var(--fg2); margin-bottom: 6px;
+}
+.sub-time-toggle {
+  background: none; border: 1px solid var(--border); border-radius: 3px;
+  color: var(--fg2); font-size: 11px; padding: 1px 4px; cursor: pointer;
+  margin-left: 4px; vertical-align: middle;
+}
+.sub-confirm-time {
+  width: 100%; padding: 10px;
+}
+.sub-cancel {
+  display: block; width: 100%; margin-top: 8px; padding: 8px;
+  background: none; border: none; color: var(--fg2);
+  font-size: 13px; cursor: pointer; text-align: center;
+  font-family: 'DM Sans', sans-serif;
+}

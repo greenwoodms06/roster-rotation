@@ -1,8 +1,9 @@
-const CACHE_NAME = 'rotation-v2.45';
+const CACHE_NAME = 'rotation-v3.0';
 const ASSETS = [
   './index.html',
   './css/styles.css',
   './js/formations.js',
+  './js/credit.js',
   './js/storage.js',
   './js/engine.js',
   './js/field.js',

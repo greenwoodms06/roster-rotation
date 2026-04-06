@@ -29,6 +29,16 @@ let gamePositionMax = {};    // { pos: maxPeriods } -- per-position max constrai
 let gameGlobalMaxPeriods = null; // null=no limit, number=max periods any player plays
 let lockPickerOpen = null;   // pid currently showing lock picker, or null
 
+// Tracking mode state (per game, inherited from season defaults)
+let gameTrackingMode = 'simple'; // 'simple' | 'coarse' | 'fine'
+
+// Game clock state (pure UI — not persisted, resets on page reload)
+let clockRunning = false;
+let clockStartTime = null;       // Date.now() when clock was last started
+let clockElapsed = 0;            // accumulated seconds before current start
+let clockInterval = null;        // setInterval ID for display updates
+let clockPeriodIdx = 0;          // which period the clock is tracking
+
 // Field tab state (shared with field.js)
 let fieldPeriodIdx = 0;
 let fieldFormationIdx = 0;
@@ -102,6 +112,199 @@ function diffColor(diff) {
   if (diff > 0) return c.good;
   if (diff < 0) return c.bad;
   return 'var(--fg2)';
+}
+
+// -- Display Name Helper (jersey number + name) --------------------------
+
+// -- Tracking Mode Helpers ------------------------------------------------
+
+/** Get tracking mode defaults from the current season object. */
+function getSeasonTrackingDefaults() {
+  const globalDef = loadSettings().defaultTrackingMode || 'simple';
+  if (!ctx) return { trackingMode: globalDef, periodDuration: null, periodIncrement: 60, timeDisplay: 'elapsed', clockEnabled: false, clockAutoFill: true };
+  const seasons = Storage.loadSeasons(ctx.teamSlug);
+  const season = seasons.find(s => s.slug === ctx.seasonSlug);
+  return {
+    trackingMode: season?.trackingMode || globalDef,
+    periodDuration: season?.periodDuration || null,
+    periodIncrement: season?.periodIncrement || 60,
+    timeDisplay: season?.timeDisplay || 'elapsed',
+    clockEnabled: season?.clockEnabled || false,
+    clockAutoFill: season?.clockAutoFill !== false,
+  };
+}
+
+/** Read the active tracking mode for the current game (falls back to season default). */
+function getActiveTrackingMode() {
+  if (currentPlan && currentPlan.trackingMode) return currentPlan.trackingMode;
+  return getSeasonTrackingDefaults().trackingMode;
+}
+
+/** Get period duration from game or season or settings default (seconds). */
+function getActivePeriodDuration() {
+  if (currentPlan && currentPlan.periodDuration != null) return currentPlan.periodDuration;
+  const seasonDef = getSeasonTrackingDefaults().periodDuration;
+  if (seasonDef) return seasonDef;
+  return loadSettings().defaultPeriodDuration || 720;
+}
+
+/** Get period increment from game or season (seconds). */
+function getActivePeriodIncrement() {
+  if (currentPlan && currentPlan.periodIncrement != null) return currentPlan.periodIncrement;
+  return getSeasonTrackingDefaults().periodIncrement;
+}
+
+/** Get time display preference from game or season. */
+function getActiveTimeDisplay() {
+  if (currentPlan && currentPlan.timeDisplay) return currentPlan.timeDisplay;
+  return getSeasonTrackingDefaults().timeDisplay;
+}
+
+/** Get clock enabled from game or season. */
+function getActiveClockEnabled() {
+  if (currentPlan && currentPlan.clockEnabled != null) return currentPlan.clockEnabled;
+  return getSeasonTrackingDefaults().clockEnabled;
+}
+
+/** Get clock auto-fill from game or season. */
+function getActiveClockAutoFill() {
+  if (currentPlan && currentPlan.clockAutoFill != null) return currentPlan.clockAutoFill;
+  return getSeasonTrackingDefaults().clockAutoFill;
+}
+
+// ── Coarse fraction presets ──
+const COARSE_FRACTIONS = [
+  { label: '¼', value: 0.25 },
+  { label: '⅓', value: 1/3 },
+  { label: '½', value: 0.5 },
+  { label: '⅔', value: 2/3 },
+  { label: '¾', value: 0.75 },
+];
+
+/**
+ * Split a slot entry at a given fraction — the "split, don't build" model.
+ * Finds the outgoing player's active entry containing `atFraction`,
+ * truncates it, and inserts a new entry for the incoming player
+ * that inherits the remainder.
+ *
+ * Mutates the occupants array in place. Returns true if successful.
+ */
+function splitSlotEntry(slotOccupants, atFraction, outgoingPid, incomingPid) {
+  const idx = slotOccupants.findIndex(
+    e => e.pid === outgoingPid && e.timeIn < atFraction - 0.001 && atFraction < e.timeOut + 0.001
+  );
+  if (idx < 0) return false;
+
+  const entry = slotOccupants[idx];
+  const originalTimeOut = entry.timeOut;
+
+  // Shrink outgoing entry to end at the sub point
+  entry.timeOut = atFraction;
+
+  // Insert incoming entry starting at sub point, inheriting the rest
+  slotOccupants.splice(idx + 1, 0, {
+    pid: incomingPid,
+    timeIn: atFraction,
+    timeOut: originalTimeOut,
+  });
+
+  return true;
+}
+
+// ── Time ↔ fraction conversion ──
+
+function timeToFraction(seconds, periodDuration) {
+  if (!periodDuration || periodDuration <= 0) return 0;
+  return Math.min(1.0, Math.max(0, seconds / periodDuration));
+}
+
+function fractionToElapsed(f, periodDuration) {
+  if (!periodDuration) return '00:00';
+  const s = Math.round(f * periodDuration);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+function fractionToRemaining(f, periodDuration) {
+  return fractionToElapsed(1.0 - f, periodDuration);
+}
+
+function fractionToDisplay(f, periodDuration) {
+  return getActiveTimeDisplay() === 'remaining'
+    ? fractionToRemaining(f, periodDuration)
+    : fractionToElapsed(f, periodDuration);
+}
+
+// ── Game Clock ──
+
+function clockGetElapsed() {
+  let total = clockElapsed;
+  if (clockRunning && clockStartTime) {
+    total += (Date.now() - clockStartTime) / 1000;
+  }
+  return total;
+}
+
+function clockGetFraction() {
+  const pd = getActivePeriodDuration();
+  if (!pd) return 0;
+  return Math.min(1.0, clockGetElapsed() / pd);
+}
+
+function clockStart() {
+  if (clockRunning) return;
+  clockRunning = true;
+  clockStartTime = Date.now();
+  clockInterval = setInterval(updateClockDisplay, 1000);
+  updateClockDisplay();
+}
+
+function clockStop() {
+  if (!clockRunning) return;
+  clockElapsed += (Date.now() - clockStartTime) / 1000;
+  clockRunning = false;
+  clockStartTime = null;
+  if (clockInterval) { clearInterval(clockInterval); clockInterval = null; }
+  updateClockDisplay();
+}
+
+function clockReset() {
+  clockStop();
+  clockElapsed = 0;
+  updateClockDisplay();
+  renderLineup();
+}
+
+function clockToggle() {
+  clockRunning ? clockStop() : clockStart();
+  renderLineup();
+}
+
+function clockAdvancePeriod(newPeriodIdx) {
+  clockReset();
+  clockPeriodIdx = newPeriodIdx;
+}
+
+function updateClockDisplay() {
+  const el = document.getElementById('gameClock');
+  if (!el) return;
+  const pd = getActivePeriodDuration();
+  if (!pd) { el.textContent = '0:00'; return; }
+  const frac = Math.min(clockGetFraction(), 1.0);
+  const timeDisp = getActiveTimeDisplay();
+  el.textContent = timeDisp === 'remaining'
+    ? fractionToRemaining(frac, pd)
+    : fractionToElapsed(frac, pd);
+  el.classList.toggle('running', clockRunning);
+  el.classList.toggle('done', clockGetElapsed() >= pd);
+}
+
+function toggleTimeDisplay() {
+  if (!currentPlan || !ctx) return;
+  currentPlan.timeDisplay = getActiveTimeDisplay() === 'elapsed' ? 'remaining' : 'elapsed';
+  Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+  renderLineup();
 }
 
 // -- Display Name Helper (jersey number + name) --------------------------
@@ -1782,6 +1985,28 @@ function doGenerate(gameId) {
       currentPlan.score = { goals: [], opponentByPeriod: new Array(numPeriods).fill(0) };
     }
     if (existingGame?.exhibition) currentPlan.exhibition = true;
+
+    // Inherit tracking mode settings from season defaults (or preserve existing)
+    if (existingGame?.trackingMode) {
+      currentPlan.trackingMode = existingGame.trackingMode;
+      if (existingGame.periodDuration != null) currentPlan.periodDuration = existingGame.periodDuration;
+      if (existingGame.periodIncrement != null) currentPlan.periodIncrement = existingGame.periodIncrement;
+      if (existingGame.timeDisplay) currentPlan.timeDisplay = existingGame.timeDisplay;
+      if (existingGame.clockEnabled != null) currentPlan.clockEnabled = existingGame.clockEnabled;
+      if (existingGame.clockAutoFill != null) currentPlan.clockAutoFill = existingGame.clockAutoFill;
+    } else {
+      const defs = getSeasonTrackingDefaults();
+      currentPlan.trackingMode = defs.trackingMode;
+      if (defs.periodDuration) currentPlan.periodDuration = defs.periodDuration;
+      currentPlan.periodIncrement = defs.periodIncrement;
+      currentPlan.timeDisplay = defs.timeDisplay;
+      currentPlan.clockEnabled = defs.clockEnabled;
+      currentPlan.clockAutoFill = defs.clockAutoFill;
+    }
+
+    // Reset clock state for new game
+    clockReset();
+
     Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
     renderLineup();
     document.querySelectorAll('nav button')[2].click();
@@ -1970,56 +2195,76 @@ function renderLineup() {
   const periodLabel = getPeriodLabel(plan.numPeriods);
   const summary = getPlayerSummary(plan);
   const gameNum = getGameNumLabel(plan);
-  const labelLine = plan.label ? `<div id="lineupLabelText" class="lineup-label-line">${esc(plan.label)}</div>` : '<div id="lineupLabelText" class="lineup-label-line" style="display:none"></div>';
-
-  // Check if game picker is useful (more than 1 game in season)
+  const posColors = getPositionColors(roster.positions);
   const allGames = ctx ? Storage.loadAllGames(ctx.teamSlug, ctx.seasonSlug) : [];
   const hasMultipleGames = allGames.length > 1;
-
-  let html = `
-    <div class="lineup-header-row">
-      <div class="lineup-heading${hasMultipleGames ? ' tappable' : ''}" ${hasMultipleGames ? 'onclick="openGamePicker()"' : ''}>
-        <div id="lineupHeadingText" style="font-weight:700;font-size:16px">${plan.date}${gameNum}</div>
-        ${labelLine}
-      </div>
-      <div class="lineup-actions">
-        <button class="btn btn-sm btn-outline" onclick="openEditRosterModal()">Edit</button>
-        <button class="btn btn-sm btn-outline" onclick="shareLineup()">Share</button>
-        <button class="btn btn-sm btn-outline" onclick="printLineup()">Print</button>
-        <button class="btn btn-sm btn-outline" onclick="deleteCurrentGame()">Delete</button>
-      </div>
-    </div>
-  `;
-
-  html += `
-    <div style="margin-bottom:12px">
-      <input type="text" id="gameLabelInput" placeholder="Add game label (e.g. vs. Opponent)" maxlength="40"
-        value="${esc(plan.label || '')}" oninput="saveGameLabel()" style="font-size:13px;padding:8px 12px">
-    </div>
-  `;
-
-  // Score row: scrimmage toggle (left) + score (right)
+  const trackMode = getActiveTrackingMode();
+  const showTimeline = trackMode !== 'simple';
+  const pd = getActivePeriodDuration();
   const us = getTotalTeamGoals(plan);
   const them = getTotalOppGoals(plan);
   const tn = esc(scoreTeamName());
-  html += `<div class="score-row">
-    <div class="scrimmage-toggle" onclick="toggleScrimmage()" title="Exclude from season stats">
-      <div class="check${plan.exhibition ? ' checked' : ''}" id="scrimmageCheck"></div>
-      <span>Scrimmage</span>
-    </div>
-    <div class="score-nums"><span class="score-side">${tn} <strong>${us}</strong></span><span class="score-divider">\u2014</span><span class="score-side">Opp <strong>${them}</strong></span></div>
+  const timeDisp = getActiveTimeDisplay();
+
+  // ── Row 1: Date (green box, tappable) + label input ──
+  let html = `<div class="lu-row1">
+    <div class="lu-date${hasMultipleGames ? ' tappable' : ''}" ${hasMultipleGames ? 'onclick="openGamePicker()"' : ''}>${plan.date}${gameNum}</div>
+    <input type="text" id="gameLabelInput" class="lu-label" placeholder="vs. Opponent" maxlength="40"
+      value="${esc(plan.label || '')}" oninput="saveGameLabel()">
   </div>`;
 
+  // ── Row 2: Scrimmage checkbox left + Share/Print/Delete right ──
+  html += `<div class="lu-btn-row">
+    <div class="lu-btn-left"><div class="scrimmage-toggle" onclick="toggleScrimmage()" title="Exclude from season stats"><div class="check${plan.exhibition ? ' checked' : ''}" id="scrimmageCheck"></div><span>Scrimmage</span></div></div>
+    <div class="lu-btn-right">
+      <button class="lu-btn" onclick="shareLineup()">Share</button>
+      <button class="lu-btn" onclick="printLineup()">Print</button>
+      <button class="lu-btn" onclick="deleteCurrentGame()">Delete</button>
+    </div>
+  </div>`;
+
+  // ── Row 3: Clock (always visible) ──
+  const clockFrac = clockGetFraction();
+  const clockDone = pd && clockGetElapsed() >= pd;
+  const elapsedStr = pd ? fractionToElapsed(Math.min(clockFrac, 1.0), pd) : '0:00';
+  const remainStr = pd ? fractionToRemaining(Math.min(clockFrac, 1.0), pd) : '0:00';
+  const durMin = pd ? Math.round(pd / 60) : 12;
+  const durStr = fractionToElapsed(1.0, pd || 720);
+  const showTime = timeDisp === 'remaining' ? remainStr : elapsedStr;
+
+  html += `<div class="lu-clock">
+    <span class="lu-clock-time${clockRunning ? ' running' : ''}${clockDone ? ' done' : ''}" id="gameClock">${showTime}</span>
+    <span class="lu-clock-sep">/</span>
+    <button class="lu-clock-dur" onclick="openPeriodDurationPrompt()" title="Set period length">${durStr}</button>
+    <button class="lu-clock-btn" onclick="clockToggle()" title="${clockRunning ? 'Pause' : 'Start'}">${clockRunning ? '⏸' : '▶'}</button>
+    <button class="lu-clock-btn" onclick="clockReset()" title="Reset">↺</button>
+    <button class="lu-clock-btn" onclick="toggleTimeDisplay()" title="${timeDisp === 'elapsed' ? 'Count down' : 'Count up'}">${timeDisp === 'elapsed' ? '↑' : '↓'}</button>
+  </div>`;
+
+  // ── Game Notes ──
+  html += '<div class="card">';
+  html += '<div class="card-title" style="display:flex;justify-content:space-between;align-items:center">Game Notes<button class="btn-ghost" onclick="insertNoteBullet()" title="Insert bullet" style="font-size:20px;padding:2px 8px;color:var(--accent)">&bull;</button></div>';
+  html += `<textarea class="game-notes" id="gameNotesInput" placeholder="Tap to add notes..." oninput="saveGameNotes()">${esc(plan.notes || '')}</textarea>`;
+  html += '</div>';
+
+  // ── Swap hint ──
   if (swapSelection) {
     const selName = displayName(swapSelection.pid);
     html += `<div class="swap-hint">Tap another player to swap with ${esc(selName)}  -  <span onclick="clearSwap()" style="text-decoration:underline;cursor:pointer">Cancel</span></div>`;
   }
 
-  html += '<div class="card">';
-  html += '<div class="card-title" style="display:flex;justify-content:space-between;align-items:center">Game Notes<button class="btn-ghost" onclick="insertNoteBullet()" style="font-size:16px;padding:2px 8px" title="Insert bullet">&bull;</button></div>';
-  html += `<textarea class="game-notes" id="gameNotesInput" placeholder="Tap to add notes..." oninput="saveGameNotes()">${esc(plan.notes || '')}</textarea>`;
-  html += '</div>';
+  // ── Lineup section header: Mode dropdown + Edit Lineup + Score ──
+  html += `<div class="lu-lineup-hdr">
+    <select class="lu-mode-select" onchange="setGameTrackingMode(this.value)" title="Tracking mode">
+      <option value="simple"${trackMode === 'simple' ? ' selected' : ''}>Simple</option>
+      <option value="coarse"${trackMode === 'coarse' ? ' selected' : ''}>Coarse</option>
+      <option value="fine"${trackMode === 'fine' ? ' selected' : ''}>Fine</option>
+    </select>
+    <button class="btn btn-sm btn-outline" onclick="openEditRosterModal()">Edit Lineup</button>
+    <div class="score-nums" style="margin-left:auto"><span class="score-side">${tn} <strong>${us}</strong></span><span class="score-divider">\u2014</span><span class="score-side">Opp <strong>${them}</strong></span></div>
+  </div>`;
 
+  // ── Period cards ──
   for (let pi = 0; pi < plan.periodAssignments.length; pi++) {
     const pa = plan.periodAssignments[pi];
     const pUs = getPeriodTeamGoals(plan, pi);
@@ -2033,24 +2278,81 @@ function renderLineup() {
       html += '<div class="period-body">';
       for (const pos of roster.positions) {
         const slotVal = pa.assignments[pos];
-        const pid = Array.isArray(slotVal) ? slotVal[0].pid : slotVal;
+        const occupants = Array.isArray(slotVal) ? slotVal : [{ pid: slotVal, timeIn: 0, timeOut: 1 }];
+        const posClr = posColors[pos] || 'var(--fg2)';
+        const lastEntry = occupants[occupants.length - 1];
+        const pid = lastEntry.pid;
         const nameHtml = pid ? displayNameHtml(pid) : '?';
         const isGK = pos === 'GK' ? ' gk' : '';
         const isSel = swapSelection && swapSelection.periodIdx === pi && swapSelection.pid === pid ? ' swap-selected' : '';
         const isHi = swapHighlight && swapHighlight.periodIdx === pi && swapHighlight.pids.includes(pid) ? ' swap-flash' : '';
         const goals = getPlayerGoals(plan, pid, pi);
-        html += `<div class="lineup-row${isSel}${isHi}"><div class="lineup-swap-target" onclick="handleSwapTap(${pi},'${pid}','${pos}')"><span class="lineup-pos${isGK}">${pos}</span><span class="lineup-name">${nameHtml}</span></div><div class="goal-counter" onclick="event.stopPropagation()"><button class="goal-btn" onclick="changePlayerGoals(${pi},'${pid}',-1)" aria-label="Remove goal">&minus;</button><span class="goal-count${goals > 0 ? ' has-goals' : ''}">${goals}</span><button class="goal-btn" onclick="changePlayerGoals(${pi},'${pid}',1)" aria-label="Add goal">+</button></div></div>`;
+
+        // Player timeline bar: show THIS PLAYER's positions during this period
+        // Segments positioned correctly with spacers for gaps
+        let timelineHtml = '';
+        if (showTimeline) {
+          const playerEntries = [];
+          for (const [p, occ] of Object.entries(pa.assignments)) {
+            const entries = Array.isArray(occ) ? occ : [{ pid: occ, timeIn: 0, timeOut: 1 }];
+            for (const e of entries) {
+              if (e.pid === pid) {
+                playerEntries.push({ pos: p, timeIn: e.timeIn, timeOut: e.timeOut });
+              }
+            }
+          }
+          playerEntries.sort((a, b) => a.timeIn - b.timeIn);
+
+          if (playerEntries.length > 0) {
+            let barSegs = '';
+            let cursor = 0;
+            for (const pe of playerEntries) {
+              // Add spacer for gap before this entry
+              if (pe.timeIn > cursor + 0.001) {
+                const gapW = ((pe.timeIn - cursor) * 100).toFixed(1);
+                barSegs += `<span class="tl-seg tl-gap" style="width:${gapW}%"></span>`;
+              }
+              const w = ((pe.timeOut - pe.timeIn) * 100).toFixed(1);
+              const clr = posColors[pe.pos] || 'var(--fg2)';
+              barSegs += `<span class="tl-seg" style="width:${w}%;background:${clr}" title="${pe.pos} ${Math.round((pe.timeOut - pe.timeIn) * 100)}%"></span>`;
+              cursor = pe.timeOut;
+            }
+            // Add trailing spacer if player doesn't fill the period
+            if (cursor < 0.999) {
+              const gapW = ((1.0 - cursor) * 100).toFixed(1);
+              barSegs += `<span class="tl-seg tl-gap" style="width:${gapW}%"></span>`;
+            }
+            timelineHtml = `<div class="slot-timeline">${barSegs}</div>`;
+          }
+        }
+
+        html += `<div class="lineup-row${isSel}${isHi}"><span class="pos-color-bar" style="background:${posClr}"></span><div class="lineup-swap-target" onclick="handleSwapTap(${pi},'${pid}','${pos}')"><span class="lineup-pos${isGK}">${pos}</span><span class="lineup-name">${nameHtml}</span></div>${timelineHtml}<div class="goal-counter" onclick="event.stopPropagation()"><button class="goal-btn" onclick="changePlayerGoals(${pi},'${pid}',-1)" aria-label="Remove goal">&minus;</button><span class="goal-count${goals > 0 ? ' has-goals' : ''}">${goals}</span><button class="goal-btn" onclick="changePlayerGoals(${pi},'${pid}',1)" aria-label="Add goal">+</button></div></div>`;
       }
       html += '</div>';
-      if (pa.bench.length > 0) {
+      const visualBench = deriveVisualBench(plan, pi);
+      if (visualBench.length > 0) {
         html += '<div class="bench-row"><span class="bench-label">Bench</span>';
         html += '<div class="bench-chips">';
-        for (const bpid of pa.bench) {
+        for (const bpid of visualBench) {
           const isSel = swapSelection && swapSelection.periodIdx === pi && swapSelection.pid === bpid ? ' swap-selected' : '';
           const isHi = swapHighlight && swapHighlight.periodIdx === pi && swapHighlight.pids.includes(bpid) ? ' swap-flash' : '';
           const bGoals = getPlayerGoals(plan, bpid, pi);
           const bGoalBadge = bGoals > 0 ? ` <span class="bench-goal-badge">${bGoals}</span>` : '';
-          html += `<div class="bench-chip${isSel}${isHi}" onclick="handleSwapTap(${pi},'${bpid}','bench')">${displayNameHtml(bpid)}${bGoalBadge}</div>`;
+          let benchBar = '';
+          if (showTimeline) {
+            // Show how much of THIS period this bench player has played
+            let periodCredit = 0;
+            for (const occ of Object.values(pa.assignments)) {
+              const entries = Array.isArray(occ) ? occ : [];
+              for (const e of entries) {
+                if (e.pid === bpid) periodCredit += (e.timeOut - e.timeIn);
+              }
+            }
+            if (periodCredit > 0.001) {
+              benchBar = `<span class="bench-time-bar" style="width:${(periodCredit * 100).toFixed(0)}%"></span>`;
+            }
+          }
+          html += `<div class="bench-chip${isSel}${isHi}" onclick="handleSwapTap(${pi},'${bpid}','bench')">${displayNameHtml(bpid)}${bGoalBadge}${benchBar}</div>`;
         }
         html += '</div></div>';
       }
@@ -2407,70 +2709,395 @@ function togglePeriodCollapse(pi) {
   renderLineup();
 }
 
-// -- Lineup Swap ----------------------------------------------------
+
+// -- Player Location Resolution ----------------------------------------
+
+/**
+ * Resolve where two players currently are in a period by scanning assignments.
+ * A player is "on field" if they are the LAST occupant of any position slot.
+ */
+function resolveSwapLocations(periodIdx, pidA, pidB) {
+  const pa = currentPlan.periodAssignments[periodIdx];
+  const result = {};
+  result[pidA] = { pos: null, type: 'bench' };
+  result[pidB] = { pos: null, type: 'bench' };
+  for (const [pos, val] of Object.entries(pa.assignments)) {
+    const occupants = Array.isArray(val) ? val : [{ pid: val, timeIn: 0, timeOut: 1 }];
+    if (occupants.length === 0) continue;
+    const currentPid = occupants[occupants.length - 1].pid;
+    if (currentPid === pidA) result[pidA] = { pos, type: 'field' };
+    if (currentPid === pidB) result[pidB] = { pos, type: 'field' };
+  }
+  return result;
+}
+
+/**
+ * Derive the visual bench for a period: available players who are NOT
+ * the current (last) occupant of any field position.
+ */
+function deriveVisualBench(plan, periodIdx) {
+  const pa = plan.periodAssignments[periodIdx];
+  const onField = new Set();
+  for (const val of Object.values(pa.assignments)) {
+    const occupants = Array.isArray(val) ? val : [{ pid: val, timeIn: 0, timeOut: 1 }];
+    if (occupants.length > 0) onField.add(occupants[occupants.length - 1].pid);
+  }
+  return plan.availablePlayers.filter(pid => !onField.has(pid));
+}
+
+// -- Lineup Swap (tap-order-independent) --------------------------------
+
 function handleSwapTap(periodIdx, pid, pos) {
   if (!currentPlan || !ctx) return;
+  if (!swapSelection) { swapSelection = { periodIdx, pid, pos }; renderLineup(); return; }
+  if (swapSelection.periodIdx === periodIdx && swapSelection.pid === pid) { swapSelection = null; renderLineup(); return; }
+  if (swapSelection.periodIdx !== periodIdx) { swapSelection = { periodIdx, pid, pos }; renderLineup(); return; }
 
-  if (!swapSelection) {
-    swapSelection = { periodIdx, pid, pos };
-    renderLineup();
-    return;
+  const pidA = swapSelection.pid;
+  const pidB = pid;
+  const locs = resolveSwapLocations(periodIdx, pidA, pidB);
+
+  if (locs[pidA].type === 'bench' && locs[pidB].type === 'bench') {
+    swapSelection = { periodIdx, pid, pos }; renderLineup(); return;
   }
 
-  if (swapSelection.periodIdx === periodIdx && swapSelection.pid === pid) {
-    swapSelection = null;
-    renderLineup();
-    return;
-  }
+  const mode = getActiveTrackingMode();
+  if (mode === 'simple') { executeFullReplace(periodIdx, pidA, pidB); }
+  else { openSubPopup(periodIdx, pidA, pidB); }
+}
 
-  if (swapSelection.periodIdx !== periodIdx) {
-    swapSelection = { periodIdx, pid, pos };
-    renderLineup();
-    return;
-  }
-
-  // Same period, different player > perform swap
+function executeFullReplace(periodIdx, pidA, pidB) {
   const pa = currentPlan.periodAssignments[periodIdx];
-  const sel = swapSelection;
-
-  if (sel.pos === 'bench' && pos === 'bench') {
-    swapSelection = { periodIdx, pid, pos };
-    renderLineup();
-    return;
-  }
-
-  if (sel.pos !== 'bench' && pos !== 'bench') {
-    // Field ↔ Field: swap pids in both position slots
-    pa.assignments[sel.pos] = pa.assignments[sel.pos].map(e => ({ ...e, pid: pid }));
-    pa.assignments[pos] = pa.assignments[pos].map(e => ({ ...e, pid: sel.pid }));
-  } else if (sel.pos === 'bench' && pos !== 'bench') {
-    // Bench → Field: replace field player with bench player
-    pa.assignments[pos] = pa.assignments[pos].map(e => ({ ...e, pid: sel.pid }));
-    pa.bench = pa.bench.filter(b => b !== sel.pid);
-    pa.bench.push(pid);
+  const locs = resolveSwapLocations(periodIdx, pidA, pidB);
+  if (locs[pidA].type === 'field' && locs[pidB].type === 'field') {
+    pa.assignments[locs[pidA].pos] = [{ pid: pidB, timeIn: 0.0, timeOut: 1.0 }];
+    pa.assignments[locs[pidB].pos] = [{ pid: pidA, timeIn: 0.0, timeOut: 1.0 }];
   } else {
-    // Field → Bench: replace field player with bench player
-    pa.assignments[sel.pos] = pa.assignments[sel.pos].map(e => ({ ...e, pid: pid }));
-    pa.bench = pa.bench.filter(b => b !== pid);
-    pa.bench.push(sel.pid);
+    const fieldPid = locs[pidA].type === 'field' ? pidA : pidB;
+    const benchPid = locs[pidA].type === 'bench' ? pidA : pidB;
+    pa.assignments[locs[fieldPid].pos] = [{ pid: benchPid, timeIn: 0.0, timeOut: 1.0 }];
+    pa.bench = pa.bench.filter(b => b !== benchPid);
+    if (!pa.bench.includes(fieldPid)) pa.bench.push(fieldPid);
   }
-
   swapSelection = null;
-  swapHighlight = { periodIdx, pids: [sel.pid, pid] };
+  swapHighlight = { periodIdx, pids: [pidA, pidB] };
   Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
-  markDataDirty();
-  renderLineup();
-
-  const nameA = displayName(sel.pid);
-  const nameB = displayName(pid);
-  showToast(`Swapped ${nameA} and ${nameB}`, 'success');
-
+  markDataDirty(); renderLineup();
+  showToast(`Replaced ${displayName(pidA)} and ${displayName(pidB)}`, 'success');
   setTimeout(() => { swapHighlight = null; renderLineup(); }, 1200);
 }
 
-function clearSwap() {
+/** Swap: exchange current positions, splitting entries that span before the swap point. */
+function executeSwap(periodIdx, pidA, pidB) {
+  const pa = currentPlan.periodAssignments[periodIdx];
+  const locs = resolveSwapLocations(periodIdx, pidA, pidB);
+
+  if (locs[pidA].type === 'field' && locs[pidB].type === 'field') {
+    const occA = pa.assignments[locs[pidA].pos];
+    const occB = pa.assignments[locs[pidB].pos];
+    const lastA = occA[occA.length - 1];
+    const lastB = occB[occB.length - 1];
+
+    // Swap time = the later of the two entries' start times
+    const swapTime = Math.max(lastA.timeIn, lastB.timeIn);
+
+    // For each slot: if the last entry started before swapTime, split it first
+    if (lastA.timeIn < swapTime - 0.001) {
+      splitSlotEntry(occA, swapTime, lastA.pid, pidB);
+    } else {
+      lastA.pid = pidB;
+    }
+
+    if (lastB.timeIn < swapTime - 0.001) {
+      splitSlotEntry(occB, swapTime, lastB.pid, pidA);
+    } else {
+      lastB.pid = pidA;
+    }
+  } else {
+    // Bench ↔ Field: bench player takes field player's current entry
+    const fieldPid = locs[pidA].type === 'field' ? pidA : pidB;
+    const benchPid = locs[pidA].type === 'bench' ? pidA : pidB;
+    const occ = pa.assignments[locs[fieldPid].pos];
+    occ[occ.length - 1].pid = benchPid;
+    pa.bench = pa.bench.filter(b => b !== benchPid);
+    if (!pa.bench.includes(fieldPid)) pa.bench.push(fieldPid);
+  }
+
   swapSelection = null;
+  swapHighlight = { periodIdx, pids: [pidA, pidB] };
+  Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+  markDataDirty(); renderLineup();
+  showToast(`Swapped ${displayName(pidA)} and ${displayName(pidB)}`, 'success');
+  setTimeout(() => { swapHighlight = null; renderLineup(); }, 1200);
+}
+
+function executeMidPeriodSub(periodIdx, pidA, pidB, atFraction) {
+  const pa = currentPlan.periodAssignments[periodIdx];
+  const locs = resolveSwapLocations(periodIdx, pidA, pidB);
+  if (locs[pidA].type === 'field' && locs[pidB].type === 'field') {
+    const occA = pa.assignments[locs[pidA].pos];
+    const occB = pa.assignments[locs[pidB].pos];
+    splitSlotEntry(occA, atFraction, occA[occA.length - 1].pid, pidB);
+    splitSlotEntry(occB, atFraction, occB[occB.length - 1].pid, pidA);
+  } else {
+    const fieldPid = locs[pidA].type === 'field' ? pidA : pidB;
+    const benchPid = locs[pidA].type === 'bench' ? pidA : pidB;
+    const occ = pa.assignments[locs[fieldPid].pos];
+    splitSlotEntry(occ, atFraction, occ[occ.length - 1].pid, benchPid);
+  }
+  swapSelection = null;
+  swapHighlight = { periodIdx, pids: [pidA, pidB] };
+  Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+  markDataDirty(); renderLineup();
+  showToast(`Sub at ${Math.round(atFraction * 100)}%`, 'success');
+  setTimeout(() => { swapHighlight = null; renderLineup(); }, 1200);
+}
+
+// -- Sub Popup (tap-order-independent) ----------------------------------
+
+function openSubPopup(periodIdx, pidA, pidB) {
+  closeSubPopup();
+  const mode = getActiveTrackingMode();
+  const pa = currentPlan.periodAssignments[periodIdx];
+  const locs = resolveSwapLocations(periodIdx, pidA, pidB);
+  const isFF = locs[pidA].type === 'field' && locs[pidB].type === 'field';
+  const targetPos = isFF ? locs[pidA].pos : (locs[pidA].type === 'field' ? locs[pidA].pos : locs[pidB].pos);
+  const slotOcc = pa.assignments[targetPos];
+  const last = Array.isArray(slotOcc) && slotOcc.length > 0 ? slotOcc[slotOcc.length - 1] : { timeIn: 0, timeOut: 1 };
+  const tS = last.timeIn, tE = last.timeOut;
+  const posLabel = isFF ? `${locs[pidA].pos} ↔ ${locs[pidB].pos}` : targetPos;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay'; overlay.id = 'subPopup';
+  let pickerHtml = '';
+  const pd = getActivePeriodDuration();
+  if (mode === 'coarse') {
+    pickerHtml = '<div class="sub-fractions">';
+    for (const f of COARSE_FRACTIONS) {
+      const dis = (f.value <= tS + 0.01 || f.value >= tE - 0.01) ? ' disabled' : '';
+      const timeHint = pd ? `<span class="frac-time">${fractionToDisplay(f.value, pd)}</span>` : '';
+      pickerHtml += `<button class="sub-frac-btn"${dis} onclick="confirmSubPopup(${periodIdx},'${pidA}','${pidB}',${f.value})">${f.label}${timeHint}</button>`;
+    }
+    pickerHtml += '</div>';
+  } else {
+    const pd = getActivePeriodDuration(), inc = getActivePeriodIncrement();
+    if (pd) {
+      const minS = Math.ceil((tS * pd + 1) / inc) * inc;
+      const maxS = Math.floor((tE * pd - 1) / inc) * inc;
+      const cf = (getActiveClockEnabled() && getActiveClockAutoFill() && clockRunning) ? clockGetFraction() : null;
+      let init = (cf != null && cf > tS && cf < tE) ? Math.round((cf * pd) / inc) * inc : Math.round(((tS + tE) / 2 * pd) / inc) * inc;
+      init = Math.max(minS, Math.min(init, maxS));
+      const timeLabel = getActiveTimeDisplay() === 'remaining' ? 'remaining' : 'elapsed';
+      if (minS <= maxS) {
+        pickerHtml = `<div class="sub-stepper"><button class="sub-step-btn" onclick="stepSubTime(-1)">−</button><span class="sub-time-display" id="subTimeDisplay">${fractionToDisplay(init / pd, pd)}</span><button class="sub-step-btn" onclick="stepSubTime(1)">+</button></div>
+        <div class="sub-time-label">${timeLabel} <button class="sub-time-toggle" onclick="toggleSubTimeDisplay()">↕</button></div>
+        <div class="sub-inc-row"><button class="sub-inc${inc===1?' active':''}" onclick="setSubInc(1)">1s</button><button class="sub-inc${inc===10?' active':''}" onclick="setSubInc(10)">10s</button><button class="sub-inc${inc===30?' active':''}" onclick="setSubInc(30)">30s</button><button class="sub-inc${inc===60?' active':''}" onclick="setSubInc(60)">1m</button><button class="sub-inc${inc===300?' active':''}" onclick="setSubInc(300)">5m</button></div>
+        <input type="hidden" id="subTimeSec" value="${init}"><input type="hidden" id="subTimeMin" value="${minS}"><input type="hidden" id="subTimeMax" value="${maxS}"><input type="hidden" id="subEntryStart" value="${tS}"><input type="hidden" id="subEntryEnd" value="${tE}">
+        <button class="btn btn-primary sub-confirm-time" onclick="confirmSubPopupFine(${periodIdx},'${pidA}','${pidB}')">Confirm</button>`;
+      } else { pickerHtml = '<div style="text-align:center;color:var(--fg2);font-size:12px;padding:8px">Time window too small at this increment.</div>'; }
+    } else { pickerHtml = '<div style="text-align:center;color:var(--fg2);font-size:12px;padding:8px">Set period duration first<br><button class="btn btn-sm btn-outline" style="margin-top:8px" onclick="closeSubPopup();openPeriodDurationPrompt()">Set Duration</button></div>'; }
+  }
+  overlay.innerHTML = `<div class="modal sub-popup" role="dialog" aria-label="Substitution" aria-modal="true">
+    <div class="sub-header">${esc(displayName(pidA))} <span class="sub-arrow">↔</span> ${esc(displayName(pidB))} <span class="sub-pos-label">${posLabel}</span></div>
+    <div class="sub-action-row">
+      <button class="btn btn-outline sub-action-btn" onclick="confirmSubPopupSwap(${periodIdx},'${pidA}','${pidB}')">Swap</button>
+      <button class="btn btn-outline sub-action-btn" onclick="confirmSubPopupReplace(${periodIdx},'${pidA}','${pidB}')">Replace</button>
+    </div>
+    <div class="sub-divider"><span>or ${isFF ? 'shift' : 'sub'} at</span></div>
+    ${pickerHtml}
+    <button class="sub-cancel" onclick="closeSubPopup()">Cancel</button></div>`;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSubPopup(); });
+  document.body.appendChild(overlay);
+}
+
+function setSubInc(sec) {
+  if (currentPlan && ctx) { currentPlan.periodIncrement = sec; Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan); }
+  document.querySelectorAll('.sub-inc').forEach(b => b.classList.remove('active'));
+  document.querySelector(`.sub-inc[onclick="setSubInc(${sec})"]`)?.classList.add('active');
+  // Recalculate bounds with new increment
+  const pd = getActivePeriodDuration();
+  const tS = parseFloat(document.getElementById('subEntryStart')?.value || 0);
+  const tE = parseFloat(document.getElementById('subEntryEnd')?.value || 1);
+  if (!pd) return;
+  const newMin = Math.ceil((tS * pd + 1) / sec) * sec;
+  const newMax = Math.floor((tE * pd - 1) / sec) * sec;
+  const minEl = document.getElementById('subTimeMin');
+  const maxEl = document.getElementById('subTimeMax');
+  const secEl = document.getElementById('subTimeSec');
+  const dispEl = document.getElementById('subTimeDisplay');
+  if (minEl) minEl.value = newMin;
+  if (maxEl) maxEl.value = newMax;
+  // Snap current value to nearest valid step
+  if (secEl && dispEl) {
+    let cur = Math.round(parseFloat(secEl.value) / sec) * sec;
+    cur = Math.max(newMin, Math.min(cur, newMax));
+    secEl.value = cur;
+    dispEl.textContent = fractionToDisplay(cur / pd, pd);
+  }
+}
+
+function toggleSubTimeDisplay() {
+  if (!currentPlan || !ctx) return;
+  currentPlan.timeDisplay = getActiveTimeDisplay() === 'elapsed' ? 'remaining' : 'elapsed';
+  Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+  // Update label and time display in popup
+  const label = document.querySelector('.sub-time-label');
+  if (label) label.firstChild.textContent = currentPlan.timeDisplay + ' ';
+  const secEl = document.getElementById('subTimeSec');
+  const dispEl = document.getElementById('subTimeDisplay');
+  const pd = getActivePeriodDuration();
+  if (secEl && dispEl && pd) dispEl.textContent = fractionToDisplay(parseFloat(secEl.value) / pd, pd);
+}
+function closeSubPopup() { document.getElementById('subPopup')?.remove(); swapSelection = null; renderLineup(); }
+function confirmSubPopupReplace(periodIdx, pidA, pidB) { closeSubPopup(); executeFullReplace(periodIdx, pidA, pidB); }
+function confirmSubPopupSwap(periodIdx, pidA, pidB) { closeSubPopup(); executeSwap(periodIdx, pidA, pidB); }
+function confirmSubPopup(periodIdx, pidA, pidB, fraction) { closeSubPopup(); executeMidPeriodSub(periodIdx, pidA, pidB, fraction); }
+function confirmSubPopupFine(periodIdx, pidA, pidB) {
+  const secEl = document.getElementById('subTimeSec'), pd = getActivePeriodDuration();
+  if (!secEl || !pd) { closeSubPopup(); return; }
+  closeSubPopup(); executeMidPeriodSub(periodIdx, pidA, pidB, timeToFraction(parseFloat(secEl.value), pd));
+}
+function stepSubTime(dir) {
+  const secEl = document.getElementById('subTimeSec'), dispEl = document.getElementById('subTimeDisplay');
+  if (!secEl || !dispEl) return;
+  const pd = getActivePeriodDuration(), inc = getActivePeriodIncrement(); if (!pd) return;
+  const minSec = parseFloat(document.getElementById('subTimeMin')?.value || inc);
+  const maxSec = parseFloat(document.getElementById('subTimeMax')?.value || (pd - inc));
+  let sec = Math.max(minSec, Math.min(parseFloat(secEl.value) + dir * inc, maxSec));
+  secEl.value = sec; dispEl.textContent = fractionToDisplay(sec / pd, pd);
+}
+function clearSwap() { swapSelection = null; renderLineup(); }
+
+// -- Tracking Mode Settings ---------------------------------------------
+
+function setGameTrackingMode(mode) {
+  if (!currentPlan || !ctx) return;
+
+  const oldMode = getActiveTrackingMode();
+  if (mode === oldMode) return;
+
+  // Downgrade warning: check for multi-occupant slots
+  if ((oldMode === 'fine' || oldMode === 'coarse') && mode === 'simple') {
+    let affectedSlots = 0;
+    for (const pa of currentPlan.periodAssignments) {
+      for (const occupants of Object.values(pa.assignments)) {
+        if (Array.isArray(occupants) && occupants.length > 1) affectedSlots++;
+      }
+    }
+    if (affectedSlots > 0) {
+      // Show downgrade modal with strategy options
+      closeCustomModal();
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay'; overlay.id = 'customModal';
+      overlay.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+        <h2>Downgrade to Simple?</h2>
+        <div class="modal-message">${affectedSlots} position slot${affectedSlots > 1 ? 's have' : ' has'} mid-period changes. Choose which player keeps the full period:</div>
+        <div style="margin:12px 0">
+          <select id="downgradeStrategy" style="width:100%">
+            <option value="current">Current player (on field now)</option>
+            <option value="most">Most playing time</option>
+            <option value="starter">Starter (first player assigned)</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-outline" onclick="closeCustomModal()">Cancel</button>
+          <button class="btn btn-danger" onclick="applyDowngrade()">Downgrade</button>
+        </div>
+      </div>`;
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCustomModal(); });
+      document.body.appendChild(overlay);
+      return;
+    }
+  }
+
+  currentPlan.trackingMode = mode;
+  Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
   renderLineup();
+}
+
+function applyDowngrade() {
+  const sel = document.getElementById('downgradeStrategy');
+  const strategy = sel ? sel.value : 'current';
+  closeCustomModal();
+  downgradeSlotsToSimple(strategy);
+  currentPlan.trackingMode = 'simple';
+  Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+  renderLineup();
+}
+
+/** Downgrade all multi-occupant slots to simple. */
+function downgradeSlotsToSimple(strategy = 'current') {
+  if (!currentPlan) return;
+  for (const pa of currentPlan.periodAssignments) {
+    for (const [pos, occupants] of Object.entries(pa.assignments)) {
+      if (!Array.isArray(occupants) || occupants.length <= 1) continue;
+      let winnerPid;
+      if (strategy === 'starter') {
+        winnerPid = occupants[0].pid;
+      } else if (strategy === 'current') {
+        winnerPid = occupants[occupants.length - 1].pid;
+      } else {
+        // 'most' — highest aggregated credit
+        const credits = {};
+        for (const e of occupants) credits[e.pid] = (credits[e.pid] || 0) + (e.timeOut - e.timeIn);
+        winnerPid = occupants[0].pid;
+        let best = credits[winnerPid];
+        for (const [pid, c] of Object.entries(credits)) {
+          if (c > best) { winnerPid = pid; best = c; }
+        }
+      }
+      pa.assignments[pos] = [{ pid: winnerPid, timeIn: 0.0, timeOut: 1.0 }];
+    }
+  }
+}
+
+function toggleGameClock() {
+  if (!currentPlan || !ctx) return;
+  currentPlan.clockEnabled = !getActiveClockEnabled();
+  if (!currentPlan.clockEnabled) {
+    clockReset();
+  }
+  Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+  renderLineup();
+}
+
+function openPeriodDurationPrompt() {
+  const current = getActivePeriodDuration();
+  const m = Math.floor(current / 60);
+  const s = current % 60;
+  const display = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  showPromptModal({
+    title: 'Period Duration',
+    message: 'Enter period length as MM:SS (e.g. 12:00).',
+    placeholder: 'MM:SS',
+    defaultValue: display,
+    confirmLabel: 'Set',
+    onConfirm: (val) => {
+      let secs;
+      if (val.includes(':')) {
+        const parts = val.split(':');
+        secs = (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0);
+      } else {
+        secs = (parseFloat(val) || 0) * 60;
+      }
+      if (secs <= 0) return;
+      if (currentPlan && ctx) {
+        currentPlan.periodDuration = Math.round(secs);
+        Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+        renderLineup();
+      }
+    }
+  });
+}
+
+/** Save season-level tracking mode defaults. */
+function saveSeasonTrackingDefaults(updates) {
+  if (!ctx) return;
+  const seasons = Storage.loadSeasons(ctx.teamSlug);
+  const idx = seasons.findIndex(s => s.slug === ctx.seasonSlug);
+  if (idx < 0) return;
+  Object.assign(seasons[idx], updates);
+  Storage.saveSeasons(ctx.teamSlug, seasons);
 }
 
 // -- Share Lineup ---------------------------------------------------
@@ -3612,6 +4239,7 @@ function loadSettings() {
     defaultFormat: '7v7',
     defaultContinuity: 0,
     defaultGlobalMaxPeriods: null,
+    defaultPeriodDuration: 720,
   };
   if (!raw) return defaults;
   try { return { ...defaults, ...JSON.parse(raw) }; }
@@ -3716,6 +4344,21 @@ function openSettings() {
               `<option value="${v}"${settings.defaultGlobalMaxPeriods === v ? ' selected' : ''}>${v}</option>`
             ).join('')}
           </select>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Sub tracking</span>
+          <div class="tri-toggle" id="settingsTrackingToggle">
+            <button class="tri-opt${(settings.defaultTrackingMode || 'simple') === 'simple' ? ' active' : ''}" onclick="setDefaultTrackingMode('simple')">Simple</button>
+            <button class="tri-opt${settings.defaultTrackingMode === 'coarse' ? ' active' : ''}" onclick="setDefaultTrackingMode('coarse')">Coarse</button>
+            <button class="tri-opt${settings.defaultTrackingMode === 'fine' ? ' active' : ''}" onclick="setDefaultTrackingMode('fine')">Fine</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Period length</span>
+          <input type="text" id="settingsPeriodDuration" inputmode="numeric" placeholder="MM:SS"
+            value="${(() => { const d = settings.defaultPeriodDuration || 720; const m = Math.floor(d/60); const s = d%60; return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0'); })()}"
+            onchange="setDefaultPeriodDuration(this.value)"
+            style="width:80px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:13px;padding:6px 8px">
         </div>
       </div>
 
@@ -3857,6 +4500,32 @@ function setDefaultGlobalMaxPeriods(val) {
   saveSettings(settings);
 }
 
+function setDefaultTrackingMode(mode) {
+  const settings = loadSettings();
+  settings.defaultTrackingMode = mode;
+  saveSettings(settings);
+  const toggle = document.getElementById('settingsTrackingToggle');
+  if (toggle) {
+    toggle.querySelectorAll('.tri-opt').forEach((btn, i) => {
+      btn.classList.toggle('active', ['simple','coarse','fine'][i] === mode);
+    });
+  }
+}
+
+function setDefaultPeriodDuration(val) {
+  const settings = loadSettings();
+  // Parse MM:SS or plain number (minutes)
+  let secs = 720;
+  if (val.includes(':')) {
+    const parts = val.split(':');
+    secs = (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0);
+  } else {
+    secs = (parseFloat(val) || 12) * 60;
+  }
+  if (secs > 0) settings.defaultPeriodDuration = Math.round(secs);
+  saveSettings(settings);
+}
+
 function resetGameDayDefaults() {
   const settings = loadSettings();
   settings.defaultPeriods = 4;
@@ -3865,8 +4534,9 @@ function resetGameDayDefaults() {
   settings.defaultFormat = '7v7';
   settings.defaultContinuity = 0;
   settings.defaultGlobalMaxPeriods = null;
+  settings.defaultTrackingMode = 'simple';
+  settings.defaultPeriodDuration = 720;
   saveSettings(settings);
-  // Re-render settings modal to reflect changes
   closeDynamicModal('settingsModal');
   openSettings();
   showToast('Defaults reset', 'success');
