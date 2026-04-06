@@ -332,7 +332,8 @@ function buildFieldSVG(formInfo, layout, plan, periodIdx) {
     const pa = plan.periodAssignments[periodIdx];
     playerMap = {};
     numberMap = {};
-    for (const [pos, pid] of Object.entries(pa.assignments)) {
+    for (const [pos, val] of Object.entries(pa.assignments)) {
+      const pid = Array.isArray(val) ? val[0].pid : val;
       playerMap[pos] = roster.players[pid]?.name || pid;
       const num = roster.players[pid]?.number;
       if (num) numberMap[pos] = num;

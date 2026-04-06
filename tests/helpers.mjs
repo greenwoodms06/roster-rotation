@@ -144,7 +144,7 @@ export function createContext(opts = {}) {
   const context = vm.createContext(sandbox);
 
   // Load files in order
-  const files = ['js/formations.js', 'js/storage.js', 'js/engine.js'];
+  const files = ['js/formations.js', 'js/credit.js', 'js/storage.js', 'js/engine.js'];
   if (opts.withApp) {
     // Stub field.js functions that app.js calls at init
     vm.runInContext(`

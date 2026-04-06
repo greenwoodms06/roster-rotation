@@ -522,10 +522,22 @@ class RotationEngine {
       frozenPositionCounts[pid] = {};
     }
     for (const pa of frozen) {
-      for (const [pos, pid] of Object.entries(pa.assignments)) {
-        frozenPlayCounts[pid] = (frozenPlayCounts[pid] || 0) + 1;
-        if (!frozenPositionCounts[pid]) frozenPositionCounts[pid] = {};
-        frozenPositionCounts[pid][pos] = (frozenPositionCounts[pid][pos] || 0) + 1;
+      for (const [pos, val] of Object.entries(pa.assignments)) {
+        if (Array.isArray(val)) {
+          // v4 format: array of occupant entries with fractional credit
+          for (const entry of val) {
+            const credit = entry.timeOut - entry.timeIn;
+            frozenPlayCounts[entry.pid] = (frozenPlayCounts[entry.pid] || 0) + credit;
+            if (!frozenPositionCounts[entry.pid]) frozenPositionCounts[entry.pid] = {};
+            frozenPositionCounts[entry.pid][pos] =
+              (frozenPositionCounts[entry.pid][pos] || 0) + credit;
+          }
+        } else {
+          // v3 fallback
+          frozenPlayCounts[val] = (frozenPlayCounts[val] || 0) + 1;
+          if (!frozenPositionCounts[val]) frozenPositionCounts[val] = {};
+          frozenPositionCounts[val][pos] = (frozenPositionCounts[val][pos] || 0) + 1;
+        }
       }
     }
 
@@ -609,7 +621,7 @@ class RotationEngine {
 
     // Step 5: Schedule remaining periods (Phase 2)
     // Build frozen rosters for spacing continuity across the rebalance boundary
-    const frozenRosters = frozen.map(pa => Object.values(pa.assignments));
+    const frozenRosters = frozen.map(pa => extractPidsFromAssignments(pa.assignments));
     const periodRosters = this._schedulePeriods(
       remainingAvailable, periodsPerPlayer, remainingPeriods, false, frozenRosters
     );
@@ -625,8 +637,9 @@ class RotationEngine {
     const gameDiversityWeight = preset[1];
 
     // Seed prevAssignments from last frozen period
+    // Bridge v4 → v3 format for engine internals (continuity cost in _buildCostMatrix)
     let prevAssignments = frozen.length > 0
-      ? frozen[frozen.length - 1].assignments
+      ? v4AssignmentsToPrimary(frozen[frozen.length - 1].assignments)
       : null;
 
     const regenerated = [];
@@ -674,12 +687,36 @@ function getPlayerSummary(plan) {
     summary[pid] = { periodsPlayed: 0, positions: [], benched: 0 };
   }
   for (const pa of plan.periodAssignments) {
-    for (const [pos, pid] of Object.entries(pa.assignments)) {
-      summary[pid].periodsPlayed++;
-      summary[pid].positions.push(pos);
+    const appearedInSlot = new Set();
+    for (const [pos, val] of Object.entries(pa.assignments)) {
+      if (Array.isArray(val)) {
+        // v4 format: array of occupant entries
+        const pidsInSlot = new Set(val.map(e => e.pid));
+        for (const pid of pidsInSlot) appearedInSlot.add(pid);
+
+        // Accumulate credit per pid, summing across all entries (handles re-entry)
+        const creditByPid = {};
+        for (const entry of val) {
+          creditByPid[entry.pid] = (creditByPid[entry.pid] || 0) + (entry.timeOut - entry.timeIn);
+        }
+        for (const [pid, credit] of Object.entries(creditByPid)) {
+          if (!summary[pid]) continue;
+          summary[pid].periodsPlayed += credit;
+          summary[pid].positions.push(pos); // record position once per slot per period
+        }
+      } else {
+        // v3 fallback
+        appearedInSlot.add(val);
+        if (summary[val]) {
+          summary[val].periodsPlayed++;
+          summary[val].positions.push(pos);
+        }
+      }
     }
     for (const pid of pa.bench) {
-      summary[pid].benched++;
+      if (summary[pid] && !appearedInSlot.has(pid)) {
+        summary[pid].benched++;
+      }
     }
   }
   return summary;

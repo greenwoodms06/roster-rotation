@@ -10,6 +10,7 @@ const suites = [
   ['Engine',     './test_engine.mjs'],
   ['Formations', './test_formations.mjs'],
   ['Storage',    './test_storage.mjs'],
+  ['Credit',     './test_credit.mjs'],
   ['App Logic',  './test_app_logic.mjs'],
 ];
 

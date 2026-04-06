@@ -197,7 +197,7 @@ suite('Storage — context save/load');
 
 // ── v3 Export Tests ─────────────────────────────────────────────
 
-suite('Storage — exportTeam v3 format');
+suite('Storage — exportTeam v4 format');
 {
   const ctx = freshCtx();
   run(ctx, "Storage.addTeam({ slug: 'cobras', name: 'Cobras' })");
@@ -206,7 +206,7 @@ suite('Storage — exportTeam v3 format');
   run(ctx, `Storage.savePlays('cobras', 's1', [{ id: 'play1', name: 'Corner', formation: 0, positions: {} }])`);
 
   const exported = run(ctx, "Storage.exportTeam('cobras')");
-  assertEqual(exported.version, 3, 'export version is 3');
+  assertEqual(exported.version, 4, 'export version is 4');
   assertEqual(exported.app, 'roster-rotation', 'app field present');
   assert(exported.exportedAt, 'has exportedAt timestamp');
   assertEqual(exported.teams.length, 1, 'one team exported');
@@ -226,7 +226,7 @@ suite('Storage — exportTeam returns null for missing team');
   assertEqual(result, null, 'returns null for missing team');
 }
 
-suite('Storage — exportAll v3 format');
+suite('Storage — exportAll v4 format');
 {
   const ctx = freshCtx();
   run(ctx, "Storage.addTeam({ slug: 't1', name: 'T1' })");
@@ -237,7 +237,7 @@ suite('Storage — exportAll v3 format');
   run(ctx, `Storage.savePlays('__standalone__', '__standalone__', [{ id: 'sp1', name: 'Quick Play', formation: 0, positions: {} }])`);
 
   const exported = run(ctx, 'Storage.exportAll()');
-  assertEqual(exported.version, 3, 'export version is 3');
+  assertEqual(exported.version, 4, 'export version is 4');
   assertEqual(exported.app, 'roster-rotation', 'app field present');
   assertEqual(exported.teams.length, 2, 'two teams exported');
   assertEqual(exported.context, { teamSlug: 't1', seasonSlug: 's1' }, 'context included');

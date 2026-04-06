@@ -143,7 +143,25 @@ const Storage = {
 
   loadAllGames(teamSlug, seasonSlug) {
     const raw = localStorage.getItem(this._key(teamSlug, seasonSlug, 'games'));
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    let games = JSON.parse(raw);
+
+    // Auto-migrate v3 → v4 on load
+    let needsSave = false;
+    for (const game of games) {
+      for (const pa of game.periodAssignments) {
+        if (!isV4Assignments(pa.assignments)) {
+          needsSave = true;
+          break;
+        }
+      }
+      if (needsSave) break;
+    }
+    if (needsSave) {
+      games = migrateGamesToV4(games);
+      localStorage.setItem(this._key(teamSlug, seasonSlug, 'games'), JSON.stringify(games));
+    }
+    return games;
   },
 
   deleteGame(teamSlug, seasonSlug, gameId) {
@@ -172,18 +190,30 @@ const Storage = {
         stats[pid].totalPeriodsAvailable += game.numPeriods;
       }
       for (const pa of game.periodAssignments) {
-        for (const [pos, pid] of Object.entries(pa.assignments)) {
-          if (!stats[pid]) continue;
-          stats[pid].totalPeriodsPlayed++;
-          stats[pid].periodsByPosition[pos] =
-            (stats[pid].periodsByPosition[pos] || 0) + 1;
+        for (const [pos, val] of Object.entries(pa.assignments)) {
+          if (Array.isArray(val)) {
+            // v4 format: array of occupant entries
+            for (const entry of val) {
+              if (!stats[entry.pid]) continue;
+              const credit = entry.timeOut - entry.timeIn;
+              stats[entry.pid].totalPeriodsPlayed += credit;
+              stats[entry.pid].periodsByPosition[pos] =
+                (stats[entry.pid].periodsByPosition[pos] || 0) + credit;
+            }
+          } else {
+            // v3 fallback (shouldn't happen after migration, but defensive)
+            if (!stats[val]) continue;
+            stats[val].totalPeriodsPlayed++;
+            stats[val].periodsByPosition[pos] =
+              (stats[val].periodsByPosition[pos] || 0) + 1;
+          }
         }
       }
     }
     return stats;
   },
 
-  // ── Export Helpers (v3 format) ───────────────────────────────────
+  // ── Export Helpers (v4 format) ───────────────────────────────────
 
   exportTeam(teamSlug) {
     const teams = this.loadTeams();
@@ -196,7 +226,7 @@ const Storage = {
       teamData.seasons.push(this._exportSeason(teamSlug, season));
     }
     return {
-      version: 3,
+      version: 4,
       app: 'roster-rotation',
       exportedAt: new Date().toISOString(),
       teams: [teamData],
@@ -206,7 +236,7 @@ const Storage = {
   exportAll() {
     const teams = this.loadTeams();
     const data = {
-      version: 3,
+      version: 4,
       app: 'roster-rotation',
       exportedAt: new Date().toISOString(),
       context: this.loadContext(),
@@ -238,7 +268,7 @@ const Storage = {
     };
   },
 
-  // ── Import Helpers (v3 format) ─────────────────────────────────
+  // ── Import Helpers (v3 and v4 format) ───────────────────────────
 
   /**
    * Clear all app data from localStorage (all rot_* keys).
@@ -257,19 +287,20 @@ const Storage = {
   },
 
   /**
-   * Restore a full v3 backup. Clears all existing data first.
-   * @param {object} data — parsed v3 backup JSON
+   * Restore a full backup. Clears all existing data first.
+   * Accepts v3 (auto-migrates games to v4) or v4 format.
+   * @param {object} data — parsed backup JSON
    * @returns {{ context: object|null }} — the context to activate
    */
   importBackup(data) {
-    if (data.version !== 3 || !Array.isArray(data.teams)) {
-      throw new Error('Invalid backup format (expected version 3)');
+    if ((data.version !== 3 && data.version !== 4) || !Array.isArray(data.teams)) {
+      throw new Error('Invalid backup format (expected version 3 or 4)');
     }
 
     this.clearAll();
 
     for (const teamData of data.teams) {
-      this._importTeamData(teamData);
+      this._importTeamData(teamData, data.version);
     }
 
     // Standalone plays
@@ -288,12 +319,13 @@ const Storage = {
    * Import a shared single-team file. Adds the team if new,
    * replaces it (cascade delete + re-add) if the slug already exists.
    * Does not touch other teams or standalone data.
-   * @param {object} data — parsed v3 single-team JSON
+   * Accepts v3 (auto-migrates) or v4 format.
+   * @param {object} data — parsed single-team JSON
    * @returns {{ teamSlug: string, seasonSlugs: string[] }}
    */
   importSharedTeam(data) {
-    if (data.version !== 3 || !Array.isArray(data.teams) || data.teams.length !== 1) {
-      throw new Error('Invalid shared team format (expected version 3 with exactly one team)');
+    if ((data.version !== 3 && data.version !== 4) || !Array.isArray(data.teams) || data.teams.length !== 1) {
+      throw new Error('Invalid shared team format (expected version 3 or 4 with exactly one team)');
     }
 
     const teamData = data.teams[0];
@@ -304,7 +336,7 @@ const Storage = {
       this.deleteTeam(teamData.slug);
     }
 
-    this._importTeamData(teamData);
+    this._importTeamData(teamData, data.version);
 
     return {
       teamSlug: teamData.slug,
@@ -312,8 +344,8 @@ const Storage = {
     };
   },
 
-  /** Internal: write a single team's data into localStorage. */
-  _importTeamData(teamData) {
+  /** Internal: write a single team's data into localStorage. Migrates v3 games to v4. */
+  _importTeamData(teamData, version) {
     this.addTeam({ slug: teamData.slug, name: teamData.name });
 
     for (const seasonData of (teamData.seasons || [])) {
@@ -329,9 +361,11 @@ const Storage = {
       }
 
       if (Array.isArray(seasonData.games) && seasonData.games.length > 0) {
+        // Migrate v3 games to v4 on import
+        const games = (version === 3) ? migrateGamesToV4(seasonData.games) : seasonData.games;
         localStorage.setItem(
           this._key(teamData.slug, seasonData.slug, 'games'),
-          JSON.stringify(seasonData.games)
+          JSON.stringify(games)
         );
       }
 

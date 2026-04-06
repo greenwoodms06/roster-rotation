@@ -150,7 +150,7 @@ function playerHasGameData(pid) {
   return games.some(g =>
     g.availablePlayers.includes(pid) ||
     g.periodAssignments.some(pa =>
-      Object.values(pa.assignments).includes(pid) ||
+      extractPidsFromAssignments(pa.assignments).includes(pid) ||
       (pa.bench && pa.bench.includes(pid))
     )
   );
@@ -1767,6 +1767,11 @@ function doGenerate(gameId) {
     const existingLabel = existingGame?.label || '';
 
     currentPlan = engine.generateGamePlan(date, available, numPeriods, starterMode, constraints);
+    // Wrap engine output (v3 {pos: pid}) to v4 ({pos: [{pid, timeIn, timeOut}]})
+    currentPlan.periodAssignments = currentPlan.periodAssignments.map(pa => ({
+      ...pa,
+      assignments: wrapEngineOutput(pa.assignments),
+    }));
     currentPlan.gameId = gameId;
     if (existingNotes) currentPlan.notes = existingNotes;
     if (existingLabel) currentPlan.label = existingLabel;
@@ -1899,10 +1904,22 @@ function computeStatsFromGames(games) {
       stats[pid].totalPeriodsAvailable += game.numPeriods;
     }
     for (const pa of game.periodAssignments) {
-      for (const [pos, pid] of Object.entries(pa.assignments)) {
-        if (!stats[pid]) continue;
-        stats[pid].totalPeriodsPlayed++;
-        stats[pid].periodsByPosition[pos] = (stats[pid].periodsByPosition[pos] || 0) + 1;
+      for (const [pos, val] of Object.entries(pa.assignments)) {
+        if (Array.isArray(val)) {
+          // v4 format: array of occupant entries with fractional credit
+          for (const entry of val) {
+            if (!stats[entry.pid]) continue;
+            const credit = entry.timeOut - entry.timeIn;
+            stats[entry.pid].totalPeriodsPlayed += credit;
+            stats[entry.pid].periodsByPosition[pos] =
+              (stats[entry.pid].periodsByPosition[pos] || 0) + credit;
+          }
+        } else {
+          // v3 fallback
+          if (!stats[val]) continue;
+          stats[val].totalPeriodsPlayed++;
+          stats[val].periodsByPosition[pos] = (stats[val].periodsByPosition[pos] || 0) + 1;
+        }
       }
     }
   }
@@ -2015,7 +2032,8 @@ function renderLineup() {
     if (!isCollapsed) {
       html += '<div class="period-body">';
       for (const pos of roster.positions) {
-        const pid = pa.assignments[pos];
+        const slotVal = pa.assignments[pos];
+        const pid = Array.isArray(slotVal) ? slotVal[0].pid : slotVal;
         const nameHtml = pid ? displayNameHtml(pid) : '?';
         const isGK = pos === 'GK' ? ' gk' : '';
         const isSel = swapSelection && swapSelection.periodIdx === pi && swapSelection.pid === pid ? ' swap-selected' : '';
@@ -2044,7 +2062,7 @@ function renderLineup() {
   html += '<table class="season-table"><thead><tr><th>Player</th><th>Played</th><th>Positions</th></tr></thead><tbody>';
   for (const pid of plan.availablePlayers) {
     const s = summary[pid];
-    html += `<tr><td>${displayNameHtml(pid)}</td><td>${s.periodsPlayed}/${plan.numPeriods}</td><td style="font-size:11px">${s.positions.join(', ')}</td></tr>`;
+    html += `<tr><td>${displayNameHtml(pid)}</td><td>${fmtPeriods(s.periodsPlayed)}/${plan.numPeriods}</td><td style="font-size:11px">${s.positions.join(', ')}</td></tr>`;
   }
   html += '</tbody></table></div>';
   el.innerHTML = html;
@@ -2218,7 +2236,7 @@ function openRebalanceModal(fromPeriodIdx) {
     const pa = currentPlan.periodAssignments[i];
     if (currentPlan.score) {
       // Check player goals in this period
-      for (const pid of Object.values(pa.assignments)) {
+      for (const pid of extractPidsFromAssignments(pa.assignments)) {
         if ((currentPlan.score.playerGoals?.[pid]?.[i] || 0) > 0) {
           hasGoals = true;
           break;
@@ -2285,6 +2303,12 @@ function doRebalance(fromPeriodIdx, newPids = [], removedPids = []) {
     const rebalanced = engine.rebalanceFromPeriod(
       currentPlan, fromPeriodIdx, newPids, constraints, removedPids
     );
+
+    // Wrap regenerated periods to v4 (frozen periods pass through unchanged)
+    rebalanced.periodAssignments = rebalanced.periodAssignments.map(pa => ({
+      ...pa,
+      assignments: wrapEngineOutput(pa.assignments),
+    }));
 
     // Preserve metadata
     rebalanced.gameId = currentPlan.gameId;
@@ -2416,14 +2440,17 @@ function handleSwapTap(periodIdx, pid, pos) {
   }
 
   if (sel.pos !== 'bench' && pos !== 'bench') {
-    pa.assignments[sel.pos] = pid;
-    pa.assignments[pos] = sel.pid;
+    // Field ↔ Field: swap pids in both position slots
+    pa.assignments[sel.pos] = pa.assignments[sel.pos].map(e => ({ ...e, pid: pid }));
+    pa.assignments[pos] = pa.assignments[pos].map(e => ({ ...e, pid: sel.pid }));
   } else if (sel.pos === 'bench' && pos !== 'bench') {
-    pa.assignments[pos] = sel.pid;
+    // Bench → Field: replace field player with bench player
+    pa.assignments[pos] = pa.assignments[pos].map(e => ({ ...e, pid: sel.pid }));
     pa.bench = pa.bench.filter(b => b !== sel.pid);
     pa.bench.push(pid);
   } else {
-    pa.assignments[sel.pos] = pid;
+    // Field → Bench: replace field player with bench player
+    pa.assignments[sel.pos] = pa.assignments[sel.pos].map(e => ({ ...e, pid: pid }));
     pa.bench = pa.bench.filter(b => b !== pid);
     pa.bench.push(sel.pid);
   }
@@ -2472,7 +2499,8 @@ function buildLineupText() {
     }
     lines.push(periodHead);
     for (const pos of roster.positions) {
-      const pid = pa.assignments[pos];
+      const slotVal = pa.assignments[pos];
+      const pid = Array.isArray(slotVal) ? slotVal[0].pid : slotVal;
       const name = displayName(pid);
       const g = getPlayerGoals(plan, pid, pi);
       const goalStr = g > 0 ? `  [${g} goal${g > 1 ? 's' : ''}]` : '';
@@ -2490,7 +2518,7 @@ function buildLineupText() {
   for (const pid of plan.availablePlayers) {
     const s = summary[pid];
     const name = displayName(pid);
-    lines.push(`  ${name}: ${s.periodsPlayed}/${plan.numPeriods}  --  ${s.positions.join(', ')}`);
+    lines.push(`  ${name}: ${fmtPeriods(s.periodsPlayed)}/${plan.numPeriods}  --  ${s.positions.join(', ')}`);
   }
 
   if (plan.notes) {
@@ -2538,7 +2566,8 @@ function printLineup() {
     let cells = `<td class="pos-cell">${esc(pos)}</td>`;
     for (let pi = 0; pi < numPeriods; pi++) {
       const pa = plan.periodAssignments[pi];
-      const pid = pa.assignments[pos];
+      const slotVal = pa.assignments[pos];
+      const pid = Array.isArray(slotVal) ? slotVal[0].pid : slotVal;
       if (pid && roster.players[pid]) {
         const p = roster.players[pid];
         const num = p.number ? `<span class="num">${esc(p.number)}</span>` : '<span class="num"></span>';
@@ -2568,7 +2597,7 @@ function printLineup() {
     const p = roster.players[pid];
     if (!p) continue;
     const num = p.number || '';
-    summaryRows += `<tr><td>${esc(p.name)}</td><td class="num-col">${esc(num)}</td><td>${s.periodsPlayed}/${plan.numPeriods}</td><td>${s.positions.join(', ')}</td></tr>`;
+    summaryRows += `<tr><td>${esc(p.name)}</td><td class="num-col">${esc(num)}</td><td>${fmtPeriods(s.periodsPlayed)}/${plan.numPeriods}</td><td>${s.positions.join(', ')}</td></tr>`;
   }
 
   const html = `<!DOCTYPE html>
@@ -2645,7 +2674,13 @@ function gameFairnessSpread(game) {
   for (const pid of game.availablePlayers) {
     let played = 0;
     for (const pa of game.periodAssignments) {
-      if (Object.values(pa.assignments).includes(pid)) played++;
+      for (const val of Object.values(pa.assignments)) {
+        if (Array.isArray(val)) {
+          played += playerCreditInSlot(val, pid);
+        } else if (val === pid) {
+          played++;
+        }
+      }
     }
     if (played < min) min = played;
     if (played > max) max = played;
@@ -2940,7 +2975,7 @@ function renderSeasonPlayers(games, stats, pids) {
     html += `<tr${rowClass}><td>${displayNameHtml(pid)}${archivedLabel}</td><td>${s.gamesAttended}</td><td>${avg}</td>`;
     if (anyGoals) html += `<td style="color:${goals > 0 ? 'var(--accent)' : 'var(--fg2)'};font-weight:${goals > 0 ? '700' : '400'}">${goals}</td>`;
     for (const pos of roster.positions) {
-      html += `<td>${s.periodsByPosition[pos] || 0}</td>`;
+      html += `<td>${fmtPeriods(s.periodsByPosition[pos] || 0)}</td>`;
     }
     html += '</tr>';
   }
@@ -2997,7 +3032,7 @@ function renderSeasonPlayers(games, stats, pids) {
       const count = s.periodsByPosition[pos] || 0;
       if (count === 0) continue;
       const w = (count / total) * barMaxW;
-      html += `<rect x="${xOff}" y="${y + 4}" width="${w}" height="${rowH - 10}" fill="${posColors[pos]}" opacity="${isArchived ? '0.4' : '0.8'}"><title>${pos}: ${count} (${Math.round(count / total * 100)}%)</title></rect>`;
+      html += `<rect x="${xOff}" y="${y + 4}" width="${w}" height="${rowH - 10}" fill="${posColors[pos]}" opacity="${isArchived ? '0.4' : '0.8'}"><title>${pos}: ${fmtPeriods(count)} (${Math.round(count / total * 100)}%)</title></rect>`;
       xOff += w;
     }
   }
