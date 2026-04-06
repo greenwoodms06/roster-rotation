@@ -105,15 +105,41 @@
 - [x] Per-game fairness spread badges in game history
 
 ### Code Quality
-- [x] File split: `js/formations.js`, `js/storage.js`, `js/engine.js`, `js/field.js`, `js/app.js`
+- [x] File split: `js/formations.js`, `js/credit.js`, `js/storage.js`, `js/engine.js`, `js/field.js`, `js/app.js`
 - [x] CSS extracted: `css/styles.css` (from inline `<style>` block)
 - [x] Folder structure: `js/`, `css/`, `icons/`, `docs/`, `tests/`, `python/`
 - [x] Code cleanup: dead code removal, naming consistency, duplicate logic consolidated
 - [x] Accessibility: aria-labels, dialog roles, focus trap, Escape key handler
 - [x] All files pure ASCII (no encoding issues across platforms), no path-comment headers
-- [x] Test suite: 908 assertions across 4 suites (`node tests/run_all.mjs`): engine (218), formations (550), storage (114), app logic (26)
+- [x] Test suite: 1303 assertions across 6 suites (`node tests/run_all.mjs`): engine (355), formations (550), storage (125), credit (115), swap/sub (94), app logic (64)
 - [x] Test harness: VM sandbox with localStorage mock, DOM stubs, per-suite isolation
 - [x] Bug fixes: broken HTML comment, stale tab state, closeImportModal double-toggle, firstAvailableStart allocation bug (non-starters capped correctly)
+
+### v4 Sub Tracking & Fractional Credit
+- [x] v4 data model: per-position arrays of `{pid, timeIn, timeOut}` entries with normalized 0.0-1.0 fractions
+- [x] Three sub tracking modes: Simple (instant swap), Coarse (fraction-based), Fine (second-precise stepper)
+- [x] Three actions in Coarse/Fine: Swap (position exchange preserving time), Replace (clean full-period with cleanup), Sub at time (split entry)
+- [x] Tap-order-independent swap system: `resolveSwapLocations` scans data to determine player locations
+- [x] Derived visual bench from assignments (not stored list)
+- [x] Replace cleanup: `removePlayerFromOtherPositions` prevents >100% credit
+- [x] Post-mutation validation: `validateAssignments` catches duplicate last-occupants
+- [x] Player time popup: all-period detail view with position-colored bars, time markers, reset buttons (per-period and full-game)
+- [x] Game clock: play/pause, reset, count up/down, auto-fill sub time in Fine mode
+- [x] Position-colored timeline bars with gap spacers and tick marks at transitions
+- [x] Bench bars below player chips (separated for touch targets)
+- [x] Duration input: dual-field MM:SS with ▲/▼ steppers
+- [x] Coarse fraction time labels (green hints under buttons)
+- [x] Downgrade modal with strategy options (Current/Most time/Starter)
+- [x] v3→v4 auto-migration on load and import
+- [x] 1 Game format option (numPeriods=1)
+
+### UX Polish
+- [x] 12-color perceptual position palette (dark-background optimized)
+- [x] Settings restructured: Game Structure + Tracking & Clock sections
+- [x] Labels renamed: Game format, Segment length, Field format, Max segments/player
+- [x] Clock direction default in Settings (↓ Down / ↑ Up)
+- [x] Required field validation: red asterisk + shake on empty required fields
+- [x] Empty-state guidance cards on all tabs
 
 ## Next Up
 
@@ -157,7 +183,8 @@
 
 ### UI / UX
 - [x] Light theme option
-- [ ] Method for providing standarized/anonymized feedback.
+- [ ] ⓘ contextual tooltips on key controls (position weights, tracking mode, scrimmage, stickiness)
+- [ ] Method for providing standardized/anonymized feedback.
 
 ### Data & Backup
 - [ ] Cloud backup: Google Drive provider (OAuth + appDataFolder)

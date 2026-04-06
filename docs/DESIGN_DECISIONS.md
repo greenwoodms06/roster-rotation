@@ -753,3 +753,63 @@ With spacing, rest distributes naturally:
 - Return `{ positions, changed, deduped }` for toast feedback
 
 The blur handler (`handlePositionBlur()`) updates the field value in place so the coach sees the cleanup before hitting Save. Toasts: "Positions formatted" for general cleanup, "Duplicate positions removed" specifically when dedup happened.
+
+## v4 Data Model: Fractional Playing Time
+
+### Why v4
+
+The original data format (v3) stored one player per position per period: `assignments: { GK: "p01", CB: "p02", ... }`. This supports only whole-period swaps — you can't record that a player was subbed in at the 6-minute mark of a 12-minute quarter.
+
+v4 changes each position slot from a single player ID to an array of time entries: `assignments: { GK: [{pid: "p01", timeIn: 0.0, timeOut: 0.5}, {pid: "p02", timeIn: 0.5, timeOut: 1.0}] }`. Time values are normalized fractions (0.0 = period start, 1.0 = period end). This enables:
+- Second-precise sub tracking
+- Fractional credit in season stats
+- Position-colored timeline bars showing who played where and when
+- Re-entry (same player can appear multiple times in a slot)
+
+### Migration
+
+`migrateGamesToV4()` converts v3 data transparently: `{ GK: "p01" }` → `{ GK: [{pid: "p01", timeIn: 0, timeOut: 1}] }`. Migration runs automatically on first load via `loadAllGames`. Export version is 4; import accepts v3 (auto-migrates) or v4.
+
+### The "Split, Don't Build" Model
+
+Substitutions always split an existing entry — they never create gaps. When Player B subs in for Player A at fraction 0.5:
+- Before: `[{A, 0→1}]`
+- After: `[{A, 0→0.5}, {B, 0.5→1}]`
+
+The incoming player inherits the remainder of the outgoing player's time window. This makes gaps structurally impossible as long as all operations use `splitSlotEntry`.
+
+### Three Actions: Swap, Replace, Sub
+
+| Action | What happens | Time data |
+|--------|-------------|-----------|
+| **Swap** | Exchange current occupants' positions from the later entry's start time. Splits earlier entries to maintain history. | Preserved |
+| **Replace** | Reset slot to `[{pid, 0→1}]`. Removes the player's stale entries from all other positions via `removePlayerFromOtherPositions`. | Erased |
+| **Sub at** | Split the last entry at a specified time. Incoming player gets the remainder. | Split |
+
+### Tap-Order Independence
+
+The swap/sub system resolves player locations from the assignment data, not from the tap sequence. `resolveSwapLocations(periodIdx, pidA, pidB)` scans every position's last entry to determine who is currently on field and where. This means tapping Player A then Player B produces the same result as tapping Player B then Player A.
+
+### Visual Bench Derivation
+
+The displayed bench is derived from assignments via `deriveVisualBench()`, not read from the stored `pa.bench` array. A player who was subbed out appears on the bench; a player who subbed in disappears from it. The stored bench list is preserved for engine compatibility but never used for display.
+
+### Replace Cleanup
+
+When Replace gives a player a full-period entry at a position, `removePlayerFromOtherPositions` scans all other positions and removes that player's entries. Gaps are filled by extending adjacent entries (next entry's timeIn pulls back, or previous entry's timeOut pushes forward). This prevents the >100% credit bug where a player appears at multiple positions simultaneously.
+
+### Post-Mutation Validation
+
+`validateAssignments()` runs after every swap, replace, and sub operation. It checks that no player appears as the last occupant of more than one position — a state that would indicate a data integrity bug. If found, it auto-corrects by removing the duplicate and logs a console warning for debugging.
+
+## Position Color Palette
+
+Uses a curated 12-color palette optimized for dark backgrounds: green, blue, red, amber, purple, cyan, deep orange, light green, pink, brown, blue grey, lime. Colors are ordered to maximize perceptual contrast between adjacent positions. Based on ColorBrewer qualitative sets, tuned for saturation and brightness on dark UI. Supports up to 12 distinct positions; wraps with modulo for larger sets.
+
+## Clock Direction & Time Display
+
+The clock and sub timing popup support both elapsed (count up, 00:00 → 12:00) and remaining (count down, 12:00 → 00:00) display modes. The setting is stored per-game as `timeDisplay` and defaults from `settings.defaultClockDirection`. All time-related UI (clock bar, coarse fraction labels, fine stepper, player time popup) respects this setting via `fractionToDisplay()`.
+
+## Required Field Validation
+
+Player name, team name, and season name inputs use a "red pulse" validation pattern: a `.field-required` CSS class adds a red asterisk to the label, and `pulseInvalid()` applies a red border + 300ms shake animation when submitting empty. This is lighter than inline validation (which would require per-keystroke checking) while still giving clear tactile feedback on mobile.

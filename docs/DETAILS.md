@@ -54,7 +54,7 @@ The Field tab works immediately with no setup. Open the app and switch to the Fi
 
 ### Game Day
 1. Open the app - Game Day tab
-2. Set the format (4 quarters, 3 periods, or 2 halves)
+2. Set the game format (4 quarters, 3 periods, 2 halves, or 1 game)
 3. Check who's available, drag the grip handle to reorder for starters
 4. Optionally expand Constraints to set pins, stickiness, position max, or global max periods
 5. Tap **Generate Lineup**
@@ -68,7 +68,9 @@ The Field tab works immediately with no setup. Open the app and switch to the Fi
 
 The **Lineup** tab is designed for sideline use during a game:
 
-- **Tap-to-swap** -- tap any two players in the same period to swap their positions (field-to-field or field-to-bench). Swaps show a pulse animation and descriptive toast.
+- **Tap-to-swap** -- tap any two players in the same period to swap their positions (field-to-field or field-to-bench). In Simple mode, swaps are immediate. In Coarse/Fine mode, a popup offers three actions: Swap (exchange positions, preserving time data), Replace (reset slot to a clean full-period entry), or Sub at a specific time point.
+- **Sub tracking modes** -- Simple (whole-period swaps), Coarse (fraction-based: ¼/⅓/½/⅔/¾ with approximate time labels), Fine (second-precise stepper with 1s/10s/30s/1m/5m increments and elapsed/remaining toggle). Position-colored timeline bars show each player's time. Tap any bar for a full-game detail popup with per-period breakdowns, position legends, and reset buttons.
+- **Game clock** -- always visible in the lineup header. Play/pause, reset, count up or count down. In Fine mode, the clock auto-fills the sub time in the stepper.
 - **Goal tracking** -- use the +/- buttons on each player row to track who scored. Opponent goals are tracked per period in the score header. The running score is displayed at the top of each period card.
 - **Scrimmage toggle** -- check "Scrimmage" to mark a game as an exhibition. Scrimmage games are excluded from season stats (W-L-D record, playing time fairness).
 - **Game label** -- add an optional label (e.g. "vs. Lincoln FC") that appears in game history and share text.
@@ -101,6 +103,7 @@ The Game Day format selector supports:
 | 4 Quarters | Q1, Q2, Q3, Q4 | Soccer, basketball, football |
 | 3 Periods | P1, P2, P3 | Hockey, lacrosse |
 | 2 Halves | H1, H2 | Soccer (older ages), any sport |
+| 1 Game | Game 1 | Single-segment games, scrimmages |
 
 The engine works with any period count. Labels adapt throughout the app (lineup cards, share text, field tab pills, season history).
 
@@ -121,11 +124,8 @@ All data lives on your device. Use the **⋮** menu in the header:
 Tap **⋮ → Settings** to customize the app:
 
 - **Theme** -- Dark, Light, or System (follows your phone's setting)
-- **Default sport & format** -- set your preferred sport and format so season creation starts with the right preset
-- **Default period format** -- set your preferred format so Game Day starts with the right one
-- **Default starter mode** -- toggle whether "first N = starters" is on by default
-- **Default position stickiness** -- Off / Medium / High, applied to each new game
-- **Default max periods per player** -- No Limit or a specific cap, applied to each new game
+- **Game Structure** -- default sport, field format, game format (4 Quarters / 3 Periods / 2 Halves / 1 Game), segment length (MM:SS), starter mode, position stickiness, max segments per player
+- **Tracking & Clock** -- sub tracking mode (Simple / Coarse / Fine), clock direction (↓ Down / ↑ Up)
 - **Hints** -- show or dismiss all first-use tip banners
 
 ## Repo Structure
@@ -139,6 +139,7 @@ roster-rotation/
 |-- _config.yml             <- GitHub Pages config (serves .well-known)
 |-- js/
 |   |-- formations.js       <- SPORTS definitions, presets, formation layouts
+|   |-- credit.js           <- v4 fractional credit utilities
 |   |-- storage.js          <- localStorage data layer + export helpers
 |   |-- engine.js           <- Rotation algorithm (pure JS, zero dependencies)
 |   |-- field.js            <- Field tab rendering + drag handling
@@ -154,6 +155,8 @@ roster-rotation/
 |   |-- test_engine.mjs     <- Engine algorithm tests
 |   |-- test_formations.mjs <- SPORTS, presets, formations tests
 |   |-- test_storage.mjs    <- Storage layer CRUD tests
+|   |-- test_credit.mjs     <- v4 credit/migration tests
+|   |-- test_swap.mjs       <- Swap/sub/replace/reset tests
 |   \-- test_app_logic.mjs  <- App-level logic tests
 |-- docs/
 |   |-- DETAILS.md          <- This file (user guide + project reference)
@@ -224,17 +227,19 @@ All data lives on your device in localStorage. Exported files include real playe
 Tests run with Node.js (18+), no dependencies:
 
 ```bash
-node tests/run_all.mjs          # Run all suites (908 assertions)
+node tests/run_all.mjs          # Run all suites (1303 assertions)
 ```
 
 Individual suites can be imported directly, but `run_all.mjs` is the standard entry point. Test coverage:
 
 | Suite | Assertions | Coverage |
 |-------|------------|---------|
-| Engine | 218 | Generation, equal time, exact fit, exclusions, starters, locks, lock validation, specialPosMax, continuity, globalMaxPeriods, season deficit, halves, 5v5, getPlayerSummary, rebalanceFromPeriod, firstAvailableStart edge cases |
-| Formations | 550 | All sports/formats, preset derivation, icons, preset key roundtrip, position matching, formation layout validation (coord counts, value ranges), auto-layout |
-| Storage | 114 | Team/season/roster/game/plays CRUD, game sorting, season stats, cascade delete, v3 export format, clearAll, importBackup, importSharedTeam, roundtrip tests, context persistence, settings preservation |
-| App Logic | 26 | Period labels, getSpecialPosition, weight constants, v3 format detection, fairness spread, game number labels |
+| Engine | 355 | Generation, equal time, exact fit, exclusions, starters, locks, lock validation, specialPosMax, continuity, globalMaxPeriods, season deficit, halves, 5v5, getPlayerSummary (v4), rebalanceFromPeriod, firstAvailableStart edge cases, spacing/rest |
+| Formations | 550 | All sports/formats, preset derivation, icons, preset key roundtrip, position matching, formation layout validation, auto-layout |
+| Storage | 125 | Team/season/roster/game/plays CRUD, game sorting, season stats (v4 fractional), cascade delete, v4 export format, import with auto-migration, roundtrip tests |
+| Credit | 115 | v4 entry/slot credit, occupantAtTime, wrapEngineOutput, v4↔v3 conversion, migration, validation, gamePlayedFraction, seasonFairnessRatio |
+| Swap/Sub | 94 | resolveSwapLocations, deriveVisualBench, splitSlotEntry, executeSwap (6 scenarios), executeFullReplace with cleanup, executeMidPeriodSub, tap order independence, credit integrity, resetPlayerInPeriod |
+| App Logic | 64 | Period labels (incl. 1=Game), getSpecialPosition, weight constants, v3 detection, fairness spread, game numbers, sanitizePositions, displayName, archived players |
 
 Tests use a VM sandbox with a localStorage mock — no browser needed. DOM-dependent features (drag reorder, modal focus trap, field rendering) would need Playwright browser tests (see `docs/ROADMAP.md`).
 

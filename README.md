@@ -48,7 +48,7 @@ The rotation engine balances four things, in priority order:
 3. **Equal position exposure** — players trend toward experiencing every position over time
 4. **Position preferences** — per-player weights to prefer or avoid specific positions
 
-Supports soccer (5v5 through 11v11), basketball, football, hockey, lacrosse, baseball, or fully custom position sets. Configurable period formats: 4 quarters, 3 periods, or 2 halves.
+Supports soccer (5v5 through 11v11), basketball, football, hockey, lacrosse, baseball, or fully custom position sets. Configurable game formats: 4 quarters, 3 periods, 2 halves, or 1 game (no divisions).
 
 ## Getting Started
 
@@ -61,7 +61,7 @@ Supports soccer (5v5 through 11v11), basketball, football, hockey, lacrosse, bas
 
 ## Key Features
 
-**Lineup tab** — Collapsible period cards, tap-to-swap, goal tracking (per-player and opponent per-period), game score bar, game labels, game notes. Check "Scrimmage" to exclude a game from season stats. Tap the date heading to switch between games. Edit button to add a late arrival or remove a player mid-game (injury/departure) with automatic rebalancing. Rebalance icon on period headers to re-optimize from any point forward.
+**Lineup tab** — Collapsible period cards, tap-to-swap, goal tracking (per-player and opponent per-period), game score bar, game labels, game notes. Three sub tracking modes: Simple (instant swap), Coarse (fraction-based timing with ¼/⅓/½/⅔/¾ buttons), Fine (second-precise stepper with game clock). Position-colored timeline bars show each player's time at each position. Tap any player's bar for a full-game breakdown popup with per-period details and reset buttons. Check "Scrimmage" to exclude a game from season stats. Tap the date heading to switch between games. Edit button to add a late arrival or remove a player mid-game (injury/departure) with automatic rebalancing. Rebalance icon on period headers to re-optimize from any point forward.
 
 **Season tab** — Three sub-tabs: Overview (games played, W-L-D record, roster size, avg availability, goals for/against with goal differential, shutouts, playing time chart), Games (availability dot chart with W/L/D letters and fairness coloring, game history with scores and fairness badges), Players (per-player stats table, position distribution, goals chart).
 
@@ -82,7 +82,7 @@ All data lives on your device. Use the **⋮** menu:
 
 ## Settings
 
-Tap **⋮ → Settings** for theme (dark/light/system), default sport and format for new seasons, default period format, starter mode, position stickiness, max periods per player, and hint management. Game Day defaults can be reset with one tap.
+Tap **⋮ → Settings** for theme (dark/light/system), Game Structure defaults (sport, field format, game format, segment length, starter mode, position stickiness, max segments per player), Tracking & Clock defaults (sub tracking mode, clock direction), and hint management.
 
 ## Updates
 
