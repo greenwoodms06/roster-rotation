@@ -1057,6 +1057,7 @@ function confirmDeleteTeam() {
 
 // -- Team Modal -----------------------------------------------------
 function openTeamModal() {
+  closeContextPicker();
   document.getElementById('teamModalTitle').textContent = 'New Team';
   document.getElementById('teamNameInput').value = '';
   document.getElementById('teamModal').classList.remove('hidden');
@@ -1091,6 +1092,7 @@ function saveTeam() {
 
 // -- Season Modal ---------------------------------------------------
 function openSeasonModal() {
+  closeContextPicker();
   if (!ctxPickTeam) return;
   document.getElementById('seasonModalTitle').textContent = 'New Season';
   document.getElementById('seasonNameInput').value = '';
@@ -5098,6 +5100,8 @@ if (_hasTouchKb) {
     const overlay = el.closest('.modal-overlay');
     if (!overlay || overlay.classList.contains('hidden')) return;
     if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA' && el.tagName !== 'SELECT') return;
+    // Numeric keypads are small — don't resize the modal for them
+    if (el.type === 'number' || el.inputMode === 'numeric') return;
 
     _kbActiveOverlay = overlay;
     _kbUsedVV = false;
