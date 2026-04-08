@@ -247,7 +247,7 @@ label {
 }
 
 .field-row { display: flex; gap: 10px; margin-bottom: 12px; }
-.field-row > * { flex: 1; }
+.field-row > * { flex: 1; min-width: 0; }
 
 .toggle-row {
   display: flex; align-items: center;
