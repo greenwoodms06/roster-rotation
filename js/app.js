@@ -5146,24 +5146,9 @@ if (_hasTouchKb) {
     let _kbRafId = null;
     const refineForKeyboard = () => {
       _kbRafId = null;
+      if (!_kbActiveModal) return;
       const vv = window.visualViewport;
       const kbHeight = window.innerHeight - vv.height;
-
-      // If no active modal tracked, try to find one from the focused element
-      if (!_kbActiveModal && kbHeight > 100) {
-        const focused = document.activeElement;
-        if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.tagName === 'SELECT')) {
-          if (focused.type !== 'number' && focused.inputMode !== 'numeric') {
-            const overlay = focused.closest('.modal-overlay');
-            if (overlay && !overlay.classList.contains('hidden')) {
-              _kbActiveModal = overlay.querySelector('.modal');
-            }
-          }
-        }
-      }
-
-      if (!_kbActiveModal) return;
-
       if (kbHeight > 100) {
         _kbUsedVV = true;
         _kbActiveModal.style.maxHeight = (vv.height - 20) + 'px';
@@ -5172,8 +5157,8 @@ if (_hasTouchKb) {
         if (focused && focused.closest('.modal')) {
           focused.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
-      } else if (kbHeight < 50) {
-        // Keyboard closed (input may still have focus — Android dismiss button)
+      } else if (_kbUsedVV && kbHeight < 50) {
+        // Keyboard closed
         _kbResetAllModals();
       }
     };
