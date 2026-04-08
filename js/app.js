@@ -5096,6 +5096,7 @@ let _kbUsedVV = false;       // whether visualViewport gave us real dimensions
 function _kbResetAllModals() {
   document.querySelectorAll('.modal-overlay .modal').forEach(m => {
     m.style.maxHeight = '';
+    m.style.marginBottom = '';
   });
   _kbActiveModal = null;
   _kbUsedVV = false;
@@ -5117,10 +5118,12 @@ if (_hasTouchKb) {
     _kbUsedVV = false;
 
     // Heuristic: assume keyboard is ~45% of screen. Set modal max-height
-    // to fit above it with a small margin. On Android this is quickly
-    // overridden by the visualViewport handler with exact dimensions.
-    const safeHeight = window.innerHeight * 0.55;
+    // to fit above it and margin-bottom to push it above the keyboard.
+    // On Android this is quickly overridden by visualViewport with exact dims.
+    const kbGuess = window.innerHeight * 0.45;
+    const safeHeight = window.innerHeight - kbGuess;
     modal.style.maxHeight = safeHeight + 'px';
+    modal.style.marginBottom = kbGuess + 'px';
 
     setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 300);
   });
@@ -5148,8 +5151,8 @@ if (_hasTouchKb) {
       const kbHeight = window.innerHeight - vv.height;
       if (kbHeight > 100) {
         _kbUsedVV = true;
-        // Modal max-height = visible area minus some padding for the overlay bottom
         _kbActiveModal.style.maxHeight = (vv.height - 20) + 'px';
+        _kbActiveModal.style.marginBottom = kbHeight + 'px';
         const focused = document.activeElement;
         if (focused && focused.closest('.modal')) {
           focused.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
