@@ -240,6 +240,28 @@ input, select {
   transition: border-color 0.15s;
 }
 input:focus, select:focus { border-color: var(--accent); }
+
+/* Safari iOS: date inputs use inline-flex with internal shadow DOM that ignores
+   flex container constraints. Force the input to behave as a block element and
+   normalize the internal webkit datetime parts. */
+input[type="date"] {
+  display: block;
+  min-width: 0;
+  box-sizing: border-box;
+}
+input[type="date"]::-webkit-datetime-edit {
+  display: block;
+  padding: 0;
+  line-height: 1;
+}
+input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+  padding: 0;
+}
+
+/* Flex child containment — clip any remaining overflow from native controls */
+.field-row > * {
+  overflow: hidden;
+}
 label {
   display: block; font-size: 12px; font-weight: 600;
   color: var(--fg2); text-transform: uppercase;
