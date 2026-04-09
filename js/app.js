@@ -5081,17 +5081,18 @@ async function acceptInstallPrompt() {
 // Only active on touch devices (coarse pointer) that have virtual keyboards.
 // Desktop browsers skip this entirely — no virtual keyboard, no resize needed.
 //
-// Strategy: When keyboard opens, shrink the MODAL (not the overlay) so it fits
-// above the keyboard. The overlay stays full-screen with align-items:flex-end,
-// keeping the modal anchored to the bottom of the screen — right above the keyboard.
+// Strategy: When keyboard opens, shrink the MODAL (not the overlay) and add
+// margin-bottom to push it above the keyboard. The overlay stays full-screen
+// with align-items:flex-end.
+//
+// SELECT elements are excluded — they open native pickers, not keyboards.
 //
 //   Android Chrome: visualViewport.height shrinks with overlays-content → exact sizing.
-//   iOS Safari: visualViewport does NOT shrink → focusin heuristic (~55% of screen).
+//   iOS Safari: visualViewport does NOT shrink → focusin heuristic (~45% of screen).
 
 const _hasTouchKb = window.matchMedia('(pointer: coarse)').matches;
 
 let _kbActiveModal = null;   // .modal element currently adjusted for keyboard
-let _kbUsedVV = false;       // whether visualViewport gave us real dimensions
 
 function _kbResetAllModals() {
   document.querySelectorAll('.modal-overlay .modal').forEach(m => {
@@ -5099,7 +5100,6 @@ function _kbResetAllModals() {
     m.style.marginBottom = '';
   });
   _kbActiveModal = null;
-  _kbUsedVV = false;
 }
 
 if (_hasTouchKb) {
@@ -5108,14 +5108,13 @@ if (_hasTouchKb) {
     if (!el) return;
     const overlay = el.closest('.modal-overlay');
     if (!overlay || overlay.classList.contains('hidden')) return;
-    if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA' && el.tagName !== 'SELECT') return;
+    if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') return;
     // Numeric keypads are small — don't resize the modal for them
     if (el.type === 'number' || el.inputMode === 'numeric') return;
 
     const modal = overlay.querySelector('.modal');
     if (!modal) return;
     _kbActiveModal = modal;
-    _kbUsedVV = false;
 
     // Heuristic: assume keyboard is ~45% of screen. Set modal max-height
     // to fit above it and margin-bottom to push it above the keyboard.
@@ -5133,7 +5132,7 @@ if (_hasTouchKb) {
     setTimeout(() => {
       const focused = document.activeElement;
       const stillInModal = focused && focused.closest('.modal-overlay') &&
-        (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.tagName === 'SELECT');
+        (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA');
       if (!stillInModal) {
         _kbResetAllModals();
       }
@@ -5150,15 +5149,14 @@ if (_hasTouchKb) {
       const vv = window.visualViewport;
       const kbHeight = window.innerHeight - vv.height;
       if (kbHeight > 100) {
-        _kbUsedVV = true;
         _kbActiveModal.style.maxHeight = (vv.height - 20) + 'px';
         _kbActiveModal.style.marginBottom = kbHeight + 'px';
         const focused = document.activeElement;
         if (focused && focused.closest('.modal')) {
           focused.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
-      } else if (_kbUsedVV && kbHeight < 50) {
-        // Keyboard closed
+      } else if (kbHeight < 50) {
+        // Keyboard closed (input may still have focus — Android dismiss button)
         _kbResetAllModals();
       }
     };
