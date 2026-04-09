@@ -242,24 +242,23 @@ input, select {
 input:focus, select:focus { border-color: var(--accent); }
 
 /* Safari iOS: date inputs use inline-flex with internal shadow DOM that ignores
-   flex container constraints. Force the input to behave as a block element and
-   normalize the internal webkit datetime parts. */
+   flex container constraints. -webkit-appearance:none strips Safari's special
+   sizing. The native date picker still works (triggered by type="date"). */
 input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
   display: block;
   min-width: 0;
   box-sizing: border-box;
 }
 input[type="date"]::-webkit-datetime-edit {
-  display: block;
   padding: 0;
-  line-height: 1;
 }
 input[type="date"]::-webkit-datetime-edit-fields-wrapper {
   padding: 0;
 }
 
-/* Contain Safari's date input overflow at the flex child level.
-   border-radius matches the input so the clip looks clean. */
+/* Contain any remaining Safari date overflow at the flex child level */
 .field-row > * {
   overflow: hidden;
   border-radius: var(--radius-sm);
