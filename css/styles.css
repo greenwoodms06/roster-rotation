@@ -248,7 +248,6 @@ input[type="date"] {
   display: block;
   min-width: 0;
   box-sizing: border-box;
-  overflow: hidden;
 }
 input[type="date"]::-webkit-datetime-edit {
   display: block;
@@ -257,6 +256,13 @@ input[type="date"]::-webkit-datetime-edit {
 }
 input[type="date"]::-webkit-datetime-edit-fields-wrapper {
   padding: 0;
+}
+
+/* Contain Safari's date input overflow at the flex child level.
+   border-radius matches the input so the clip looks clean. */
+.field-row > * {
+  overflow: hidden;
+  border-radius: var(--radius-sm);
 }
 
 label {
