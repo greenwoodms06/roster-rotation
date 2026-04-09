@@ -258,10 +258,6 @@ input[type="date"]::-webkit-datetime-edit-fields-wrapper {
   padding: 0;
 }
 
-/* Flex child containment — clip any remaining overflow from native controls */
-.field-row > * {
-  overflow: hidden;
-}
 label {
   display: block; font-size: 12px; font-weight: 600;
   color: var(--fg2); text-transform: uppercase;
