@@ -2209,8 +2209,7 @@ function renderLineup() {
   const posColors = getPositionColors(roster.positions);
   const allGames = ctx ? Storage.loadAllGames(ctx.teamSlug, ctx.seasonSlug) : [];
   const hasMultipleGames = allGames.length > 1;
-  const trackMode = getActiveTrackingMode();
-  const showTimeline = trackMode !== 'simple';
+  const showTimeline = true;
   const pd = getActivePeriodDuration();
   const us = getTotalTeamGoals(plan);
   const them = getTotalOppGoals(plan);
@@ -2266,11 +2265,6 @@ function renderLineup() {
 
   // ── Lineup section header: Mode dropdown + Edit Lineup + Score ──
   html += `<div class="lu-lineup-hdr">
-    <select class="lu-mode-select" onchange="setGameTrackingMode(this.value)" title="Tracking mode">
-      <option value="simple"${trackMode === 'simple' ? ' selected' : ''}>Simple</option>
-      <option value="coarse"${trackMode === 'coarse' ? ' selected' : ''}>Coarse</option>
-      <option value="fine"${trackMode === 'fine' ? ' selected' : ''}>Fine</option>
-    </select>
     <button class="btn btn-sm btn-outline" onclick="openEditRosterModal()">Edit Lineup</button>
     <div class="score-nums" style="margin-left:auto"><span class="score-side">${tn} <strong>${us}</strong></span><span class="score-divider">\u2014</span><span class="score-side">Opp <strong>${them}</strong></span></div>
   </div>`;
@@ -2771,9 +2765,7 @@ function handleSwapTap(periodIdx, pid, pos) {
     swapSelection = { periodIdx, pid, pos }; renderLineup(); return;
   }
 
-  const mode = getActiveTrackingMode();
-  if (mode === 'simple') { executeFullReplace(periodIdx, pidA, pidB); }
-  else { openSubPopup(periodIdx, pidA, pidB); }
+  openSubPopup(periodIdx, pidA, pidB);
 }
 
 function executeFullReplace(periodIdx, pidA, pidB) {
@@ -2958,7 +2950,6 @@ function executeMidPeriodSub(periodIdx, pidA, pidB, atFraction) {
 
 function openSubPopup(periodIdx, pidA, pidB) {
   closeSubPopup();
-  const mode = getActiveTrackingMode();
   const pa = currentPlan.periodAssignments[periodIdx];
   const locs = resolveSwapLocations(periodIdx, pidA, pidB);
   const isFF = locs[pidA].type === 'field' && locs[pidB].type === 'field';
@@ -2970,43 +2961,52 @@ function openSubPopup(periodIdx, pidA, pidB) {
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay'; overlay.id = 'subPopup';
-  let pickerHtml = '';
   const pd = getActivePeriodDuration();
-  if (mode === 'coarse') {
-    pickerHtml = '<div class="sub-fractions">';
-    for (const f of COARSE_FRACTIONS) {
-      const dis = (f.value <= tS + 0.01 || f.value >= tE - 0.01) ? ' disabled' : '';
-      const timeHint = pd ? `<span class="frac-time">${fractionToDisplay(f.value, pd)}</span>` : '';
-      pickerHtml += `<button class="sub-frac-btn"${dis} onclick="confirmSubPopup(${periodIdx},'${pidA}','${pidB}',${f.value})">${f.label}${timeHint}</button>`;
-    }
-    pickerHtml += '</div>';
-  } else {
-    const pd = getActivePeriodDuration(), inc = getActivePeriodIncrement();
-    if (pd) {
-      // Bounds: stepper can reach entry edges. Confirm detects swap at boundaries.
-      const minS = Math.round(tS * pd);
-      const maxS = Math.round(tE * pd);
-      const cf = (getActiveClockEnabled() && getActiveClockAutoFill() && clockRunning) ? clockGetFraction() : null;
-      let init = (cf != null && cf > tS && cf < tE) ? Math.round(cf * pd) : Math.round((tS + tE) / 2 * pd);
-      init = Math.max(minS, Math.min(init, maxS));
-      const timeLabel = getActiveTimeDisplay() === 'remaining' ? 'remaining' : 'elapsed';
-      if (minS <= maxS) {
-        pickerHtml = `<div class="sub-stepper"><button class="sub-step-btn" onclick="stepSubTime(-1)">−</button><span class="sub-time-display" id="subTimeDisplay">${fractionToDisplay(init / pd, pd)}</span><button class="sub-step-btn" onclick="stepSubTime(1)">+</button></div>
+  const settings = loadSettings();
+  const defaultPrecision = settings.defaultTimingPrecision || 'approx';
+
+  // Build the approx time option row: [Swap] ¼ ⅓ ½ ⅔ ¾
+  let approxRow = `<div class="sub-time-options" id="subApproxRow">`;
+  approxRow += `<button class="sub-time-opt active" data-value="swap" onclick="selectSubTime(this)">Swap</button>`;
+  for (const f of COARSE_FRACTIONS) {
+    const dis = (f.value <= tS + 0.01 || f.value >= tE - 0.01) ? ' disabled' : '';
+    const timeHint = pd ? `<span class="frac-time">${fractionToDisplay(f.value, pd)}</span>` : '';
+    approxRow += `<button class="sub-time-opt"${dis} data-value="${f.value}" onclick="selectSubTime(this)">${f.label}${timeHint}</button>`;
+  }
+  approxRow += '</div>';
+
+  // Build exact (stepper) picker
+  let exactHtml = '';
+  const inc = getActivePeriodIncrement();
+  if (pd) {
+    const minS = Math.round(tS * pd);
+    const maxS = Math.round(tE * pd);
+    const cf = (getActiveClockEnabled() && getActiveClockAutoFill() && clockRunning) ? clockGetFraction() : null;
+    let init = (cf != null && cf > tS && cf < tE) ? Math.round(cf * pd) : Math.round((tS + tE) / 2 * pd);
+    init = Math.max(minS, Math.min(init, maxS));
+    const timeLabel = getActiveTimeDisplay() === 'remaining' ? 'remaining' : 'elapsed';
+    if (minS <= maxS) {
+      exactHtml = `<div class="sub-stepper"><button class="sub-step-btn" onclick="stepSubTime(-1)">−</button><span class="sub-time-display" id="subTimeDisplay">${fractionToDisplay(init / pd, pd)}</span><button class="sub-step-btn" onclick="stepSubTime(1)">+</button></div>
         <div class="sub-time-label">${timeLabel} <button class="sub-time-toggle" onclick="toggleSubTimeDisplay()">↕</button></div>
         <div class="sub-inc-row"><button class="sub-inc${inc===1?' active':''}" onclick="setSubInc(1)">1s</button><button class="sub-inc${inc===10?' active':''}" onclick="setSubInc(10)">10s</button><button class="sub-inc${inc===30?' active':''}" onclick="setSubInc(30)">30s</button><button class="sub-inc${inc===60?' active':''}" onclick="setSubInc(60)">1m</button><button class="sub-inc${inc===300?' active':''}" onclick="setSubInc(300)">5m</button></div>
-        <input type="hidden" id="subTimeSec" value="${init}"><input type="hidden" id="subTimeMin" value="${minS}"><input type="hidden" id="subTimeMax" value="${maxS}">
-        <button class="btn btn-primary sub-confirm-time" onclick="confirmSubPopupFine(${periodIdx},'${pidA}','${pidB}')">Confirm</button>`;
-      } else { pickerHtml = '<div style="text-align:center;color:var(--fg2);font-size:12px;padding:8px">No room for a timed sub in this window.</div>'; }
-    } else { pickerHtml = '<div style="text-align:center;color:var(--fg2);font-size:12px;padding:8px">Set period duration first<br><button class="btn btn-sm btn-outline" style="margin-top:8px" onclick="closeSubPopup();openPeriodDurationPrompt()">Set Duration</button></div>'; }
+        <input type="hidden" id="subTimeSec" value="${init}"><input type="hidden" id="subTimeMin" value="${minS}"><input type="hidden" id="subTimeMax" value="${maxS}">`;
+    } else {
+      exactHtml = '<div style="text-align:center;color:var(--fg2);font-size:12px;padding:8px">No room for a timed sub in this window.</div>';
+    }
+  } else {
+    exactHtml = '<div style="text-align:center;color:var(--fg2);font-size:12px;padding:8px">Set period duration first<br><button class="btn btn-sm btn-outline" style="margin-top:8px" onclick="closeSubPopup();openPeriodDurationPrompt()">Set Duration</button></div>';
   }
+
   overlay.innerHTML = `<div class="modal sub-popup" role="dialog" aria-label="Substitution" aria-modal="true">
     <div class="sub-header">${esc(displayName(pidA))} <span class="sub-arrow">↔</span> ${esc(displayName(pidB))} <span class="sub-pos-label">${posLabel}</span></div>
-    <div class="sub-action-row">
-      <button class="btn btn-outline sub-action-btn" onclick="confirmSubPopupSwap(${periodIdx},'${pidA}','${pidB}')">Swap</button>
-      <button class="btn btn-outline sub-action-btn" onclick="confirmSubPopupReplace(${periodIdx},'${pidA}','${pidB}')">Replace</button>
+    <div id="subPrecisionApprox" class="${defaultPrecision === 'exact' ? 'hidden' : ''}">${approxRow}</div>
+    <div id="subPrecisionExact" class="${defaultPrecision !== 'exact' ? 'hidden' : ''}">${exactHtml}</div>
+    <div class="sub-precision-row">
+      <button class="sub-precision-btn${defaultPrecision !== 'exact' ? ' active' : ''}" id="subPrecApprox" onclick="switchSubPrecision('approx')">Approx</button>
+      <button class="sub-precision-btn${defaultPrecision === 'exact' ? ' active' : ''}" id="subPrecExact" onclick="switchSubPrecision('exact')">Exact</button>
     </div>
-    <div class="sub-divider"><span>or ${isFF ? 'shift' : 'sub'} at</span></div>
-    ${pickerHtml}
+    <button class="btn btn-primary sub-confirm-main" onclick="confirmSubPopupUnified(${periodIdx},'${pidA}','${pidB}')">Confirm</button>
+    <button class="sub-reset-link" onclick="confirmSubPopupReplace(${periodIdx},'${pidA}','${pidB}')">Reset to full period</button>
     <button class="sub-cancel" onclick="closeSubPopup()">Cancel</button></div>`;
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSubPopup(); });
   document.body.appendChild(overlay);
@@ -3030,10 +3030,52 @@ function toggleSubTimeDisplay() {
   const pd = getActivePeriodDuration();
   if (secEl && dispEl && pd) dispEl.textContent = fractionToDisplay(parseFloat(secEl.value) / pd, pd);
 }
+function selectSubTime(btn) {
+  if (btn.disabled) return;
+  const row = document.getElementById('subApproxRow');
+  if (row) row.querySelectorAll('.sub-time-opt').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function confirmSubPopupUnified(periodIdx, pidA, pidB) {
+  // Check if we're in exact mode
+  const exactEl = document.getElementById('subPrecisionExact');
+  if (exactEl && !exactEl.classList.contains('hidden')) {
+    confirmSubPopupFine(periodIdx, pidA, pidB);
+    return;
+  }
+  // Approx mode: read the selected option
+  const active = document.querySelector('#subApproxRow .sub-time-opt.active');
+  if (!active) { closeSubPopup(); return; }
+  const val = active.dataset.value;
+  if (val === 'swap') {
+    closeSubPopup(); executeSwap(periodIdx, pidA, pidB);
+  } else {
+    closeSubPopup(); executeMidPeriodSub(periodIdx, pidA, pidB, parseFloat(val));
+  }
+}
+
+function switchSubPrecision(mode) {
+  const approxEl = document.getElementById('subPrecisionApprox');
+  const exactEl = document.getElementById('subPrecisionExact');
+  const btnApprox = document.getElementById('subPrecApprox');
+  const btnExact = document.getElementById('subPrecExact');
+  if (!approxEl || !exactEl) return;
+  if (mode === 'exact') {
+    approxEl.classList.add('hidden');
+    exactEl.classList.remove('hidden');
+    btnApprox?.classList.remove('active');
+    btnExact?.classList.add('active');
+  } else {
+    exactEl.classList.add('hidden');
+    approxEl.classList.remove('hidden');
+    btnExact?.classList.remove('active');
+    btnApprox?.classList.add('active');
+  }
+}
+
 function closeSubPopup() { document.getElementById('subPopup')?.remove(); swapSelection = null; renderLineup(); }
 function confirmSubPopupReplace(periodIdx, pidA, pidB) { closeSubPopup(); executeFullReplace(periodIdx, pidA, pidB); }
-function confirmSubPopupSwap(periodIdx, pidA, pidB) { closeSubPopup(); executeSwap(periodIdx, pidA, pidB); }
-function confirmSubPopup(periodIdx, pidA, pidB, fraction) { closeSubPopup(); executeMidPeriodSub(periodIdx, pidA, pidB, fraction); }
 function confirmSubPopupFine(periodIdx, pidA, pidB) {
   const secEl = document.getElementById('subTimeSec'), pd = getActivePeriodDuration();
   if (!secEl || !pd) { closeSubPopup(); return; }
@@ -3217,89 +3259,6 @@ function togglePopupTimeDisplay() {
   const pid = popup.dataset.pid || '';
   popup.remove();
   if (pid) openPlayerTimePopup(pi, pid);
-}
-
-// -- Tracking Mode Settings ---------------------------------------------
-
-function setGameTrackingMode(mode) {
-  if (!currentPlan || !ctx) return;
-
-  const oldMode = getActiveTrackingMode();
-  if (mode === oldMode) return;
-
-  // Downgrade warning: check for multi-occupant slots
-  if ((oldMode === 'fine' || oldMode === 'coarse') && mode === 'simple') {
-    let affectedSlots = 0;
-    for (const pa of currentPlan.periodAssignments) {
-      for (const occupants of Object.values(pa.assignments)) {
-        if (Array.isArray(occupants) && occupants.length > 1) affectedSlots++;
-      }
-    }
-    if (affectedSlots > 0) {
-      // Show downgrade modal with strategy options
-      closeCustomModal();
-      const overlay = document.createElement('div');
-      overlay.className = 'modal-overlay'; overlay.id = 'customModal';
-      overlay.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
-        <h2>Downgrade to Simple?</h2>
-        <div class="modal-message">${affectedSlots} position slot${affectedSlots > 1 ? 's have' : ' has'} mid-period changes. Choose which player keeps the full period:</div>
-        <div style="margin:12px 0">
-          <select id="downgradeStrategy" style="width:100%">
-            <option value="current">Current player (on field now)</option>
-            <option value="most">Most playing time</option>
-            <option value="starter">Starter (first player assigned)</option>
-          </select>
-        </div>
-        <div class="modal-actions">
-          <button class="btn btn-outline" onclick="closeCustomModal()">Cancel</button>
-          <button class="btn btn-danger" onclick="applyDowngrade()">Downgrade</button>
-        </div>
-      </div>`;
-      overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCustomModal(); });
-      document.body.appendChild(overlay);
-      return;
-    }
-  }
-
-  currentPlan.trackingMode = mode;
-  Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
-  renderLineup();
-}
-
-function applyDowngrade() {
-  const sel = document.getElementById('downgradeStrategy');
-  const strategy = sel ? sel.value : 'current';
-  closeCustomModal();
-  downgradeSlotsToSimple(strategy);
-  currentPlan.trackingMode = 'simple';
-  Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
-  renderLineup();
-}
-
-/** Downgrade all multi-occupant slots to simple. */
-function downgradeSlotsToSimple(strategy = 'current') {
-  if (!currentPlan) return;
-  for (const pa of currentPlan.periodAssignments) {
-    for (const [pos, occupants] of Object.entries(pa.assignments)) {
-      if (!Array.isArray(occupants) || occupants.length <= 1) continue;
-      let winnerPid;
-      if (strategy === 'starter') {
-        winnerPid = occupants[0].pid;
-      } else if (strategy === 'current') {
-        winnerPid = occupants[occupants.length - 1].pid;
-      } else {
-        // 'most' — highest aggregated credit
-        const credits = {};
-        for (const e of occupants) credits[e.pid] = (credits[e.pid] || 0) + (e.timeOut - e.timeIn);
-        winnerPid = occupants[0].pid;
-        let best = credits[winnerPid];
-        for (const [pid, c] of Object.entries(credits)) {
-          if (c > best) { winnerPid = pid; best = c; }
-        }
-      }
-      pa.assignments[pos] = [{ pid: winnerPid, timeIn: 0.0, timeOut: 1.0 }];
-    }
-  }
 }
 
 function toggleGameClock() {
@@ -4657,11 +4616,10 @@ function openSettings() {
       <div class="settings-section">
         <div class="settings-section-title">Tracking & Clock</div>
         <div class="settings-row">
-          <span class="settings-label">Sub tracking</span>
-          <div class="tri-toggle" id="settingsTrackingToggle">
-            <button class="tri-opt${(settings.defaultTrackingMode || 'simple') === 'simple' ? ' active' : ''}" onclick="setDefaultTrackingMode('simple')">Simple</button>
-            <button class="tri-opt${settings.defaultTrackingMode === 'coarse' ? ' active' : ''}" onclick="setDefaultTrackingMode('coarse')">Coarse</button>
-            <button class="tri-opt${settings.defaultTrackingMode === 'fine' ? ' active' : ''}" onclick="setDefaultTrackingMode('fine')">Fine</button>
+          <span class="settings-label">Timing precision</span>
+          <div class="tri-toggle" id="settingsTimingToggle">
+            <button class="tri-opt${(settings.defaultTimingPrecision || 'approx') !== 'exact' ? ' active' : ''}" onclick="setDefaultTimingPrecision('approx')">Approx</button>
+            <button class="tri-opt${settings.defaultTimingPrecision === 'exact' ? ' active' : ''}" onclick="setDefaultTimingPrecision('exact')">Exact</button>
           </div>
         </div>
         <div class="settings-row">
@@ -4811,14 +4769,14 @@ function setDefaultGlobalMaxPeriods(val) {
   saveSettings(settings);
 }
 
-function setDefaultTrackingMode(mode) {
+function setDefaultTimingPrecision(mode) {
   const settings = loadSettings();
-  settings.defaultTrackingMode = mode;
+  settings.defaultTimingPrecision = mode;
   saveSettings(settings);
-  const toggle = document.getElementById('settingsTrackingToggle');
+  const toggle = document.getElementById('settingsTimingToggle');
   if (toggle) {
     toggle.querySelectorAll('.tri-opt').forEach((btn, i) => {
-      btn.classList.toggle('active', ['simple','coarse','fine'][i] === mode);
+      btn.classList.toggle('active', ['approx','exact'][i] === mode);
     });
   }
 }
@@ -4850,7 +4808,7 @@ function resetGameDayDefaults() {
   settings.defaultFormat = '7v7';
   settings.defaultContinuity = 0;
   settings.defaultGlobalMaxPeriods = null;
-  settings.defaultTrackingMode = 'simple';
+  settings.defaultTimingPrecision = 'approx';
   settings.defaultPeriodDuration = 720;
   settings.defaultClockDirection = 'down';
   saveSettings(settings);

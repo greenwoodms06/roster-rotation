@@ -1578,11 +1578,6 @@ label {
   display: flex; align-items: center; gap: 8px;
   margin: 12px 0 8px; padding: 0 2px;
 }
-.lu-mode-select {
-  font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;
-  background: var(--bg); border: 1.5px solid var(--border); border-radius: 6px;
-  color: var(--fg); padding: 5px 8px; width: auto; cursor: pointer;
-}
 
 /* -- Position Color Bar & Slot Timeline --------------- */
 .pos-color-bar {
@@ -1732,35 +1727,10 @@ label {
   font-size: 10px; color: var(--fg2); background: var(--bg3);
   border-radius: 4px; padding: 1px 5px; margin-left: 4px; vertical-align: middle;
 }
-.sub-replace-btn {
-  width: 100%; padding: 10px; text-align: center;
-  font-size: 13px; margin-bottom: 4px;
+.sub-time-options {
+  display: flex; gap: 6px; margin-bottom: 10px;
 }
-.sub-action-row {
-  display: flex; gap: 8px; margin-bottom: 4px;
-}
-.sub-action-btn {
-  flex: 1; padding: 10px; text-align: center; font-size: 13px;
-}
-.frac-time {
-  display: block; font-family: 'JetBrains Mono', monospace;
-  font-size: 9px; font-weight: 400; color: var(--accent);
-  margin-top: 2px; opacity: 0.8;
-}
-.sub-divider {
-  text-align: center; font-size: 11px; color: var(--fg2);
-  margin: 8px 0; position: relative;
-}
-.sub-divider::before, .sub-divider::after {
-  content: ''; position: absolute; top: 50%;
-  width: calc(50% - 24px); height: 1px; background: var(--border);
-}
-.sub-divider::before { left: 0; }
-.sub-divider::after { right: 0; }
-.sub-fractions {
-  display: flex; gap: 6px; margin-bottom: 6px;
-}
-.sub-frac-btn {
+.sub-time-opt {
   flex: 1; padding: 10px 2px;
   background: var(--bg); border: 1.5px solid var(--border);
   border-radius: var(--radius-sm); color: var(--fg);
@@ -1768,8 +1738,30 @@ label {
   text-align: center; transition: all 0.12s;
   font-family: 'DM Sans', sans-serif;
 }
-.sub-frac-btn:active { background: rgba(0,230,118,0.12); border-color: var(--accent); color: var(--accent); }
-.sub-frac-btn:disabled { opacity: 0.2; cursor: default; pointer-events: none; }
+.sub-time-opt.active {
+  background: rgba(0,230,118,0.12); border-color: var(--accent); color: var(--accent);
+}
+.sub-time-opt:active { background: rgba(0,230,118,0.12); border-color: var(--accent); color: var(--accent); }
+.sub-time-opt:disabled { opacity: 0.2; cursor: default; pointer-events: none; }
+.sub-confirm-main {
+  width: 100%; padding: 10px; margin-bottom: 4px;
+}
+.sub-reset-link {
+  display: block; width: 100%; padding: 6px;
+  background: none; border: none; color: var(--fg2);
+  font-size: 11px; cursor: pointer; text-align: center;
+  font-family: 'DM Sans', sans-serif; opacity: 0.7;
+}
+.sub-reset-link:active { color: var(--accent); opacity: 1; }
+.frac-time {
+  display: block; font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; font-weight: 400; color: var(--accent);
+  margin-top: 2px; opacity: 0.8;
+}
+.sub-divider {
+  text-align: center; font-size: 11px; color: var(--fg2);
+  margin: 8px 0; position: relative; display: none;
+}
 .sub-stepper {
   display: flex; align-items: center; gap: 10px;
   justify-content: center; margin-bottom: 8px;
@@ -1845,14 +1837,22 @@ label {
 }
 .dur-num-sm::-webkit-outer-spin-button,
 .dur-num-sm::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.sub-confirm-time {
-  width: 100%; padding: 10px;
-}
 .sub-cancel {
   display: block; width: 100%; margin-top: 8px; padding: 8px;
   background: none; border: none; color: var(--fg2);
   font-size: 13px; cursor: pointer; text-align: center;
   font-family: 'DM Sans', sans-serif;
+}
+.sub-precision-row {
+  display: flex; gap: 4px; justify-content: center; margin-bottom: 10px;
+}
+.sub-precision-btn {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
+  padding: 4px 14px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--fg2); cursor: pointer; transition: all 0.12s;
+}
+.sub-precision-btn.active {
+  background: rgba(0,230,118,0.12); border-color: var(--accent); color: var(--accent);
 }
 
 /* -- Required Field Validation ------------------------- */
