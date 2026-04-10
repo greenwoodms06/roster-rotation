@@ -1408,6 +1408,33 @@ label {
   0%, 100% { box-shadow: none; }
   50% { box-shadow: 0 0 0 4px rgba(0,230,118,0.25); }
 }
+/* Help modal */
+.help-modal {
+  max-height: 85vh; display: flex; flex-direction: column;
+}
+.help-search {
+  margin-bottom: 12px; flex-shrink: 0;
+}
+.help-body {
+  overflow-y: auto; flex: 1; -webkit-overflow-scrolling: touch;
+  padding-right: 4px;
+}
+.help-section { margin-bottom: 16px; }
+.help-section-title {
+  font-size: 13px; font-weight: 700; color: var(--accent);
+  text-transform: uppercase; letter-spacing: 0.5px;
+  margin-bottom: 8px; padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.help-item { margin-bottom: 10px; }
+.help-item-title {
+  font-size: 13px; font-weight: 600; color: var(--fg);
+  margin-bottom: 2px;
+}
+.help-item-desc {
+  font-size: 12px; color: var(--fg2); line-height: 1.5;
+}
+
 /* Settings modal */
 .settings-section {
   margin-bottom: 20px;

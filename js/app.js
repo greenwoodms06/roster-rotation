@@ -4043,6 +4043,7 @@ function toggleHeaderMenu() {
     <button class="header-menu-item" onclick="closeHeaderMenu();importTeamFromFile()">Import Team</button>
     <div class="header-menu-divider"></div>
     <button class="header-menu-item" onclick="closeHeaderMenu();openSettings()">Settings</button>
+    <button class="header-menu-item" onclick="closeHeaderMenu();openHelp()">Help</button>
     <button class="header-menu-item" onclick="closeHeaderMenu();openAbout()">About</button>
   `;
 
@@ -4476,6 +4477,98 @@ function showToast(msg, type = '') {
 }
 
 // -- About Modal ---------------------------------------------------
+// -- Help Modal -----------------------------------------------------
+
+const HELP_SECTIONS = [
+  { title: 'Getting Started', items: [
+    { title: 'Create a Team & Season', desc: 'Tap the header label (e.g. "No team") to open the context picker. Create a team, then a season. Each season has its own roster, positions, and game history.' },
+    { title: 'Add Players', desc: 'On the <strong>Roster</strong> tab, tap <strong>+ Add</strong> to add players. You need at least as many players as positions to generate a lineup.' },
+    { title: 'Position Preferences', desc: 'Tap any player on the Roster to set position weights. Cycle through: Normal, Prefer, Strong Prefer, Never. The engine uses these to bias assignments while keeping things fair.' },
+  ]},
+  { title: 'Game Day', items: [
+    { title: 'Select Available Players', desc: 'Tap players from the Roster column to move them to Available. Drag to reorder — order determines starters (if enabled).' },
+    { title: 'Game Format', desc: 'Choose 4 quarters, 3 periods, 2 halves, or 1 game. The engine divides playing time across these segments.' },
+    { title: 'Generate Lineup', desc: 'Tap <strong>Generate Lineup</strong> to create a fair rotation. The engine balances equal playing time, season fairness, and position exposure. You land on the Lineup tab.' },
+    { title: 'Constraints (optional)', desc: 'Expand the Constraints panel to fine-tune generation. <strong>Position stickiness</strong> reduces mid-game position changes. <strong>Max periods</strong> caps how many periods any player plays. Tap a player name to <strong>lock</strong> them to a position.' },
+    { title: 'Re-generating', desc: 'You can go back to Game Day at any time to adjust who is available, change the format, or tweak constraints, then re-generate. This replaces the current lineup for that date. To add a second game on the same date (e.g. a tournament), the app will ask whether to add or replace.' },
+  ]},
+  { title: 'Lineup', items: [
+    { title: 'Swapping Players', desc: 'Tap two players in the same period to open the swap popup. <strong>Swap</strong> trades their positions instantly. Pick a fraction (¼, ½, etc.) or use <strong>Exact</strong> mode to record exactly when the sub happened. Then tap <strong>Confirm</strong>.' },
+    { title: 'Reset to Full Period', desc: 'In the swap popup, the <strong>Reset to full period</strong> link at the bottom wipes sub history for that slot — the selected player gets credit for the entire period. Useful for correcting mistakes.' },
+    { title: 'Goal Tracking', desc: 'Use the <strong>+/−</strong> buttons on each player row to track who scored. Opponent goals are tracked per period in the period headers.' },
+    { title: 'Game Clock', desc: 'The clock row shows elapsed or remaining time. Tap <strong>▶</strong> to start, <strong>⏸</strong> to pause, <strong>↺</strong> to reset. Tap the duration to change period length. The <strong>↑/↓</strong> button toggles count direction.' },
+    { title: 'Edit Lineup', desc: 'Tap <strong>Edit Lineup</strong> to add a late arrival or remove a player mid-game (injury or early departure). The engine rebalances automatically from that point forward.' },
+    { title: 'Rebalance', desc: 'The refresh icon on each period header (except the first) re-optimizes the lineup from that period onward, keeping earlier periods frozen.' },
+    { title: 'Timeline Bars', desc: 'Colored bars on each player row show how long they played each position during that period. Tap a bar for a detailed breakdown popup with per-period stats.' },
+    { title: 'Scrimmage', desc: 'Check <strong>Scrimmage</strong> to exclude a game from season stats. Useful for practice games.' },
+    { title: 'Game Notes', desc: 'Tap the notes area below the clock to add free-text notes for the game. Notes are saved automatically.' },
+  ]},
+  { title: 'Season', items: [
+    { title: 'Overview', desc: 'Games played, win-loss-draw record, roster size, average availability, goals for/against, goal differential, shutouts, and a playing time chart.' },
+    { title: 'Games', desc: 'Game history with scores, availability dots, W/L/D letters, and fairness badges. Tap a game to jump to its lineup.' },
+    { title: 'Players', desc: 'Per-player stats table with games played, total playing time, position distribution, and goals chart.' },
+  ]},
+  { title: 'Field', items: [
+    { title: 'Formation View', desc: 'See your players on a field diagram. Drag position dots to arrange formations. Works standalone (no team needed) or synced with a game lineup.' },
+    { title: 'Routes & Zones', desc: 'Use the <strong>pencil</strong> to draw routes between positions. Use the <strong>box</strong> tool to draw shaded zones with a 4-color palette. Tap a route or zone to select and delete it.' },
+    { title: 'Saved Plays', desc: 'Create and name plays for quick reuse. Each play saves dot positions, routes, and zones.' },
+    { title: 'Defense Overlay', desc: 'Toggle <strong>DEF</strong> to add opponent position markers on the field. Drag to position them.' },
+  ]},
+  { title: 'Data & Backup', items: [
+    { title: 'All Data is Local', desc: 'Everything is stored on your device. Nothing is sent to any server. Back up regularly to avoid data loss.' },
+    { title: 'Back Up & Restore', desc: 'Use the <strong>⋮</strong> menu to back up all data as a file, or restore from a previous backup. A safety backup is auto-created before restoring.' },
+    { title: 'Share & Import Team', desc: 'Export a single team to share with another coach, or import a shared team file.' },
+    { title: 'Multi-Team & Multi-Season', desc: 'Tap the header label to switch between teams, seasons, or field-only mode. Each team/season has independent data. You can copy a roster when creating a new season.' },
+  ]},
+];
+
+function openHelp() {
+  closeDynamicModal('helpModal');
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'helpModal';
+
+  let sectionsHtml = '';
+  for (const section of HELP_SECTIONS) {
+    sectionsHtml += `<div class="help-section" data-section="${esc(section.title)}">`;
+    sectionsHtml += `<div class="help-section-title">${esc(section.title)}</div>`;
+    for (const item of section.items) {
+      sectionsHtml += `<div class="help-item"><div class="help-item-title">${esc(item.title)}</div><div class="help-item-desc">${item.desc}</div></div>`;
+    }
+    sectionsHtml += '</div>';
+  }
+
+  overlay.innerHTML = `<div class="modal help-modal" role="dialog" aria-label="Help" aria-modal="true">
+    <h2>
+      <span>Help</span>
+      <button class="close-btn" onclick="closeDynamicModal('helpModal')" aria-label="Close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </h2>
+    <input type="text" class="help-search" id="helpSearchInput" placeholder="Search help..." oninput="filterHelp()" autocomplete="off">
+    <div class="help-body" id="helpBody">${sectionsHtml}</div>
+  </div>`;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeDynamicModal('helpModal'); });
+  document.body.appendChild(overlay);
+  document.getElementById('helpSearchInput').focus();
+}
+
+function filterHelp() {
+  const q = (document.getElementById('helpSearchInput')?.value || '').toLowerCase().trim();
+  const body = document.getElementById('helpBody');
+  if (!body) return;
+
+  for (const section of body.querySelectorAll('.help-section')) {
+    let sectionVisible = false;
+    for (const item of section.querySelectorAll('.help-item')) {
+      const title = item.querySelector('.help-item-title')?.textContent?.toLowerCase() || '';
+      const desc = item.querySelector('.help-item-desc')?.textContent?.toLowerCase() || '';
+      const match = !q || title.includes(q) || desc.includes(q);
+      item.style.display = match ? '' : 'none';
+      if (match) sectionVisible = true;
+    }
+    section.style.display = sectionVisible ? '' : 'none';
+  }
+}
+
 function openAbout() {
   document.getElementById('aboutModal').classList.remove('hidden');
 }
@@ -4848,7 +4941,7 @@ document.addEventListener('keydown', (e) => {
   if (tournament) { closeTournamentModal(); return; }
 
   // Close dynamic data modals
-  for (const id of ['editRosterModal', 'gamePickerModal', 'settingsModal', 'shareTeamModal']) {
+  for (const id of ['editRosterModal', 'gamePickerModal', 'settingsModal', 'shareTeamModal', 'helpModal']) {
     if (document.getElementById(id)) { closeDynamicModal(id); return; }
   }
 
