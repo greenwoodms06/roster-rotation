@@ -68,9 +68,9 @@ The Field tab works immediately with no setup. Open the app and switch to the Fi
 
 The **Lineup** tab is designed for sideline use during a game:
 
-- **Tap-to-swap** -- tap any two players in the same period to swap their positions (field-to-field or field-to-bench). In Simple mode, swaps are immediate. In Coarse/Fine mode, a popup offers three actions: Swap (exchange positions, preserving time data), Replace (reset slot to a clean full-period entry), or Sub at a specific time point.
-- **Sub tracking modes** -- Simple (whole-period swaps), Coarse (fraction-based: ¼/⅓/½/⅔/¾ with approximate time labels), Fine (second-precise stepper with 1s/10s/30s/1m/5m increments and elapsed/remaining toggle). Position-colored timeline bars show each player's time. Tap any bar for a full-game detail popup with per-period breakdowns, position legends, and reset buttons.
-- **Game clock** -- always visible in the lineup header. Play/pause, reset, count up or count down. In Fine mode, the clock auto-fills the sub time in the stepper.
+- **Tap-to-swap** -- tap any two players in the same period to open the swap popup. When both slots are clean (no mid-period subs yet), tapping swaps instantly. When slots have sub history, the popup appears with a unified time picker: **Swap** (selected by default) trades positions instantly, or pick a fraction (¼/⅓/½/⅔/¾) to record when the sub happened. Toggle **Approx/Exact** for second-precise timing with 1s/10s/30s/1m/5m increments. One **Confirm** button executes all actions. **Reset to full period** (text link) wipes sub history for corrections.
+- **Timeline bars** -- position-colored bars on each player row show time at each position during the period. Tap any bar for a full-game detail popup with per-period breakdowns, position legends, and reset buttons. Always visible.
+- **Game clock** -- always visible in the lineup header. Play/pause, reset, count up or count down. When running, the clock auto-fills the sub time in the exact stepper.
 - **Goal tracking** -- use the +/- buttons on each player row to track who scored. Opponent goals are tracked per period in the score header. The running score is displayed at the top of each period card.
 - **Scrimmage toggle** -- check "Scrimmage" to mark a game as an exhibition. Scrimmage games are excluded from season stats (W-L-D record, playing time fairness).
 - **Game label** -- add an optional label (e.g. "vs. Lincoln FC") that appears in game history and share text.
@@ -125,7 +125,7 @@ Tap **⋮ → Settings** to customize the app:
 
 - **Theme** -- Dark, Light, or System (follows your phone's setting)
 - **Game Structure** -- default sport, field format, game format (4 Quarters / 3 Periods / 2 Halves / 1 Game), segment length (MM:SS), starter mode, position stickiness, max segments per player
-- **Tracking & Clock** -- sub tracking mode (Simple / Coarse / Fine), clock direction (↓ Down / ↑ Up)
+- **Tracking & Clock** -- timing precision (Approx / Exact), clock direction (↓ Down / ↑ Up)
 - **Hints** -- show or dismiss all first-use tip banners
 
 ## Repo Structure

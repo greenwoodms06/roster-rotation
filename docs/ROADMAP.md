@@ -117,8 +117,8 @@
 
 ### v4 Sub Tracking & Fractional Credit
 - [x] v4 data model: per-position arrays of `{pid, timeIn, timeOut}` entries with normalized 0.0-1.0 fractions
-- [x] Three sub tracking modes: Simple (instant swap), Coarse (fraction-based), Fine (second-precise stepper)
-- [x] Three actions in Coarse/Fine: Swap (position exchange preserving time), Replace (clean full-period with cleanup), Sub at time (split entry)
+- [x] Unified swap popup with time picker: Swap (default), fraction buttons (¼/⅓/½/⅔/¾), Approx/Exact toggle for second-precise stepper
+- [x] Single Confirm button for all actions; Reset to full period as de-emphasized text link for corrections
 - [x] Tap-order-independent swap system: `resolveSwapLocations` scans data to determine player locations
 - [x] Derived visual bench from assignments (not stored list)
 - [x] Replace cleanup: `removePlayerFromOtherPositions` prevents >100% credit
@@ -129,7 +129,7 @@
 - [x] Bench bars below player chips (separated for touch targets)
 - [x] Duration input: dual-field MM:SS with ▲/▼ steppers
 - [x] Coarse fraction time labels (green hints under buttons)
-- [x] Downgrade modal with strategy options (Current/Most time/Starter)
+- [x] ~~Downgrade modal~~ (removed — unified popup eliminates mode switching)
 - [x] v3→v4 auto-migration on load and import
 - [x] 1 Game format option (numPeriods=1)
 
@@ -148,7 +148,8 @@
 
 ## Recently Completed
 
-
+- [x] **Unified swap popup** -- Replaced three separate tracking modes (Simple/Coarse/Fine) with a single popup. Time picker row: Swap (default) + fraction buttons. Approx/Exact toggle for precision. One Confirm button. Reset to full period as text link. Eliminated mode dropdown from lineup header, removed downgrade modal, always-visible timeline bars.
+- [x] **Help screen** -- Searchable, scrollable help modal accessible from ⋮ menu. Organized by section (Getting Started, Game Day, Lineup, Season, Field, Data & Backup) with title + description for every major feature. Real-time text filtering.
 - [x] **Tab swipe navigation (v3.4)** -- Horizontal swipe on `#app` switches between tabs. Requires >60px horizontal, <400ms, clearly more horizontal than vertical. Skips when modals are open or touch starts on field-interactive elements (dot overlays, defense markers, draw layer).
 - [x] **Unified sharing (v3.4)** -- All share flows (backup, team share, lineup share) route through a single `shareOrDownload()` function. Removed the 3-button lineup share popup menu (~50 lines deleted). On mobile: native share sheet. On desktop: direct file download.
 - [x] **Desktop share fix (v3.4)** -- `shareOrDownload()` uses `navigator.userAgentData.mobile` (Client Hints API) instead of touch detection. Chrome on Windows falsely reports `maxTouchPoints > 0` and `ontouchstart` even without touch hardware. CSS `(pointer: coarse)` also unreliable. `userAgentData.mobile` is the only reliable mobile detection for Chromium; falls back to UA string regex for Safari/Firefox.
@@ -183,7 +184,7 @@
 
 ### UI / UX
 - [x] Light theme option
-- [ ] ⓘ contextual tooltips on key controls (position weights, tracking mode, scrimmage, stickiness)
+- [x] Help screen: searchable, scrollable feature reference accessible from ⋮ menu
 - [ ] Method for providing standardized/anonymized feedback.
 
 ### Data & Backup

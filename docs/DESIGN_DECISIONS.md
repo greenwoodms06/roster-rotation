@@ -778,13 +778,17 @@ Substitutions always split an existing entry — they never create gaps. When Pl
 
 The incoming player inherits the remainder of the outgoing player's time window. This makes gaps structurally impossible as long as all operations use `splitSlotEntry`.
 
-### Three Actions: Swap, Replace, Sub
+### Unified Swap Popup
 
-| Action | What happens | Time data |
-|--------|-------------|-----------|
-| **Swap** | Exchange current occupants' positions from the later entry's start time. Splits earlier entries to maintain history. | Preserved |
-| **Replace** | Reset slot to `[{pid, 0→1}]`. Removes the player's stale entries from all other positions via `removePlayerFromOtherPositions`. | Erased |
-| **Sub at** | Split the last entry at a specified time. Incoming player gets the remainder. | Split |
+The swap popup presents all actions through a single flow. A time picker row shows **Swap** (selected by default) followed by fraction buttons (¼, ⅓, ½, ⅔, ¾). An Approx/Exact toggle switches between fraction buttons and a second-precise stepper. One **Confirm** button executes the selected action. Behind the scenes:
+
+| Selection | Calls | Time data |
+|-----------|-------|-----------|
+| **Swap** (default) | `executeSwap` — exchanges current occupants' positions from the later entry's start time, splits earlier entries to maintain history | Preserved |
+| **Fraction / Exact time** | `executeMidPeriodSub` — splits the last entry at the specified time, incoming player gets the remainder | Split |
+| **Reset to full period** (text link) | `executeFullReplace` — resets slot to `[{pid, 0→1}]`, removes stale entries from other positions via `removePlayerFromOtherPositions` | Erased |
+
+The old three-mode system (Simple/Coarse/Fine) with a mode dropdown was replaced because the names were jargon and the mode concept was unnecessary — the popup naturally offers all precision levels in one place.
 
 ### Tap-Order Independence
 
@@ -808,7 +812,7 @@ Uses a curated 12-color palette optimized for dark backgrounds: green, blue, red
 
 ## Clock Direction & Time Display
 
-The clock and sub timing popup support both elapsed (count up, 00:00 → 12:00) and remaining (count down, 12:00 → 00:00) display modes. The setting is stored per-game as `timeDisplay` and defaults from `settings.defaultClockDirection`. All time-related UI (clock bar, coarse fraction labels, fine stepper, player time popup) respects this setting via `fractionToDisplay()`.
+The clock and sub timing popup support both elapsed (count up, 00:00 → 12:00) and remaining (count down, 12:00 → 00:00) display modes. The setting is stored per-game as `timeDisplay` and defaults from `settings.defaultClockDirection`. All time-related UI (clock bar, fraction labels, exact stepper, player time popup) respects this setting via `fractionToDisplay()`.
 
 ## Required Field Validation
 
