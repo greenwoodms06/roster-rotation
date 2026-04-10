@@ -2975,7 +2975,7 @@ function openSubPopup(periodIdx, pidA, pidB) {
   }
   approxRow += '</div>';
 
-  // Build exact (stepper) picker
+  // Build exact (stepper) picker — Swap button inline with stepper
   let exactHtml = '';
   const inc = getActivePeriodIncrement();
   if (pd) {
@@ -2986,15 +2986,15 @@ function openSubPopup(periodIdx, pidA, pidB) {
     init = Math.max(minS, Math.min(init, maxS));
     const timeLabel = getActiveTimeDisplay() === 'remaining' ? 'remaining' : 'elapsed';
     if (minS <= maxS) {
-      exactHtml = `<div class="sub-stepper"><button class="sub-step-btn" onclick="stepSubTime(-1)">−</button><span class="sub-time-display" id="subTimeDisplay">${fractionToDisplay(init / pd, pd)}</span><button class="sub-step-btn" onclick="stepSubTime(1)">+</button></div>
+      exactHtml += `<div class="sub-stepper"><button class="sub-time-opt sub-exact-swap-btn active" id="exactSwapBtn" onclick="selectExactSwap(this)">Swap</button><button class="sub-step-btn" onclick="stepSubTime(-1)">−</button><span class="sub-time-display" id="subTimeDisplay">${fractionToDisplay(init / pd, pd)}</span><button class="sub-step-btn" onclick="stepSubTime(1)">+</button></div>
         <div class="sub-time-label">${timeLabel} <button class="sub-time-toggle" onclick="toggleSubTimeDisplay()">↕</button></div>
         <div class="sub-inc-row"><button class="sub-inc${inc===1?' active':''}" onclick="setSubInc(1)">1s</button><button class="sub-inc${inc===10?' active':''}" onclick="setSubInc(10)">10s</button><button class="sub-inc${inc===30?' active':''}" onclick="setSubInc(30)">30s</button><button class="sub-inc${inc===60?' active':''}" onclick="setSubInc(60)">1m</button><button class="sub-inc${inc===300?' active':''}" onclick="setSubInc(300)">5m</button></div>
         <input type="hidden" id="subTimeSec" value="${init}"><input type="hidden" id="subTimeMin" value="${minS}"><input type="hidden" id="subTimeMax" value="${maxS}">`;
     } else {
-      exactHtml = '<div style="text-align:center;color:var(--fg2);font-size:12px;padding:8px">No room for a timed sub in this window.</div>';
+      exactHtml += '<div style="text-align:center;color:var(--fg2);font-size:12px;padding:8px">No room for a timed sub in this window.</div>';
     }
   } else {
-    exactHtml = '<div style="text-align:center;color:var(--fg2);font-size:12px;padding:8px">Set period duration first<br><button class="btn btn-sm btn-outline" style="margin-top:8px" onclick="closeSubPopup();openPeriodDurationPrompt()">Set Duration</button></div>';
+    exactHtml += '<div style="text-align:center;color:var(--fg2);font-size:12px;padding:8px">Set period duration first<br><button class="btn btn-sm btn-outline" style="margin-top:8px" onclick="closeSubPopup();openPeriodDurationPrompt()">Set Duration</button></div>';
   }
 
   overlay.innerHTML = `<div class="modal sub-popup" role="dialog" aria-label="Substitution" aria-modal="true">
@@ -3037,10 +3037,23 @@ function selectSubTime(btn) {
   btn.classList.add('active');
 }
 
+function selectExactSwap(btn) {
+  const swapBtn = document.getElementById('exactSwapBtn');
+  if (!swapBtn) return;
+  const wasActive = swapBtn.classList.contains('active');
+  swapBtn.classList.toggle('active', !wasActive);
+}
+
 function confirmSubPopupUnified(periodIdx, pidA, pidB) {
   // Check if we're in exact mode
   const exactEl = document.getElementById('subPrecisionExact');
   if (exactEl && !exactEl.classList.contains('hidden')) {
+    // Check if Swap is selected in exact mode
+    const exactSwap = document.getElementById('exactSwapBtn');
+    if (exactSwap && exactSwap.classList.contains('active')) {
+      closeSubPopup(); executeSwap(periodIdx, pidA, pidB);
+      return;
+    }
     confirmSubPopupFine(periodIdx, pidA, pidB);
     return;
   }
@@ -3089,6 +3102,9 @@ function confirmSubPopupFine(periodIdx, pidA, pidB) {
 function stepSubTime(dir) {
   const secEl = document.getElementById('subTimeSec'), dispEl = document.getElementById('subTimeDisplay');
   if (!secEl || !dispEl) return;
+  // Deselect exact Swap when user touches the stepper
+  const exactSwap = document.getElementById('exactSwapBtn');
+  if (exactSwap) exactSwap.classList.remove('active');
   const pd = getActivePeriodDuration(), inc = getActivePeriodIncrement(); if (!pd) return;
   const minSec = parseFloat(document.getElementById('subTimeMin')?.value || 1);
   const maxSec = parseFloat(document.getElementById('subTimeMax')?.value || (pd - 1));

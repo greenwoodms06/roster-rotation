@@ -219,6 +219,10 @@ nav button svg { width: 22px; height: 22px; }
 .btn:active { transform: scale(0.97); }
 .btn-primary { background: var(--accent); color: var(--check-fg); width: 100%; }
 .btn-primary:disabled { opacity: 0.4; pointer-events: none; }
+#generateBtn {
+  position: sticky; bottom: 0; z-index: 10;
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.3);
+}
 .btn-sm { font-size: 13px; padding: 8px 14px; }
 .btn-outline { background: transparent; border: 1.5px solid var(--fg2); color: var(--fg); }
 .btn-danger { background: var(--danger); color: white; }
@@ -1757,6 +1761,10 @@ label {
 .sub-time-options {
   display: flex; gap: 6px; margin-bottom: 10px;
 }
+.sub-exact-swap-btn {
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  padding: 8px 12px; font-size: 13px;
+}
 .sub-time-opt {
   flex: 1; padding: 10px 2px;
   background: var(--bg); border: 1.5px solid var(--border);
@@ -1792,6 +1800,7 @@ label {
 .sub-stepper {
   display: flex; align-items: center; gap: 10px;
   justify-content: center; margin-bottom: 8px;
+  position: relative;
 }
 .sub-step-btn {
   width: 40px; height: 40px; border-radius: 50%;
