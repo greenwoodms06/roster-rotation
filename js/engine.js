@@ -8,6 +8,9 @@
  *   continuity: 0|1|2              -- 0=off, 1=medium, 2=high position stickiness
  *   positionMax: { pos: number }   -- max periods any player can play a given position
  *   specialPosMax: null|number     -- DEPRECATED, converted to positionMax for positions[0]
+ *   maxSubsPerBreak: null|number   -- max subs out between consecutive periods (null = no limit).
+ *                                     Soft constraint: relaxes if hold-over pool is exhausted
+ *                                     (e.g., all prior players hit globalMaxPeriods cap).
  */
 
 class RotationEngine {
@@ -41,6 +44,7 @@ class RotationEngine {
     const locks = constraints.locks || [];
     const continuity = constraints.continuity || 0;
     const globalMaxPeriods = constraints.globalMaxPeriods || null;
+    const maxSubsPerBreak = constraints.maxSubsPerBreak ?? null;
     // Support both new positionMax map and deprecated specialPosMax
     let positionMax = constraints.positionMax || {};
     if (constraints.specialPosMax != null && Object.keys(positionMax).length === 0) {
@@ -52,7 +56,7 @@ class RotationEngine {
 
     const periodsPerPlayer = this._allocatePlayingTime(availableIds, numPeriods, globalMaxPeriods, firstAvailableStart);
     const periodRosters = this._schedulePeriods(
-      availableIds, periodsPerPlayer, numPeriods, firstAvailableStart
+      availableIds, periodsPerPlayer, numPeriods, firstAvailableStart, [], maxSubsPerBreak
     );
 
     const gamePositionCounts = {};
@@ -215,9 +219,13 @@ class RotationEngine {
    * @param {string[][]} [priorRosters=[]] — rosters from frozen periods (for rebalance
    *   spacing continuity). Each element is an array of player IDs who played that period.
    */
-  _schedulePeriods(availableIds, periodsPerPlayer, numPeriods, firstAvailableStart, priorRosters = []) {
+  _schedulePeriods(availableIds, periodsPerPlayer, numPeriods, firstAvailableStart, priorRosters = [], maxSubsPerBreak = null) {
     const remaining = { ...periodsPerPlayer };
     const periodRosters = Array.from({ length: numPeriods }, () => []);
+    const N = this.numPositions;
+    const holdMin = (maxSubsPerBreak != null)
+      ? Math.max(0, N - maxSubsPerBreak)
+      : 0;
 
     // Spacing trackers: seed from prior (frozen) periods if provided
     const lastPlayedPeriod = {};   // period index when player last played (-1 = never)
@@ -262,7 +270,7 @@ class RotationEngine {
       const candidates = availableIds.filter(pid => remaining[pid] > 0);
       const periodsLeftAfter = numPeriods - period - 1;
 
-      candidates.sort((a, b) => {
+      const cmp = (a, b) => {
         // Primary: urgency (must play soon or will run out of periods)
         const urgA = remaining[a] - periodsLeftAfter;
         const urgB = remaining[b] - periodsLeftAfter;
@@ -276,9 +284,45 @@ class RotationEngine {
         if (gapA !== gapB) return gapB - gapA;
         // Quaternary: fatigue — prefer players with fewer consecutive plays
         return consecutivePlays[a] - consecutivePlays[b];
-      });
+      };
+      candidates.sort(cmp);
 
-      const selected = candidates.slice(0, this.numPositions);
+      // Determine prior-period roster for sub-cap hold-over floor.
+      // Sources, in order: previous scheduled period, starters (firstAvailableStart),
+      // or last frozen roster (rebalance across freeze boundary).
+      let priorRoster = null;
+      if (period > 0 && periodRosters[period - 1].length > 0) {
+        priorRoster = periodRosters[period - 1];
+      } else if (period === 0 && priorRosters.length > 0) {
+        priorRoster = priorRosters[priorRosters.length - 1];
+      }
+
+      let selected;
+      if (holdMin > 0 && priorRoster) {
+        const priorSet = new Set(priorRoster);
+        // Sub-cap wins over equal-time: allow hold-overs past their quota
+        // rather than drop below the floor. Comparator naturally demotes
+        // exhausted players (urgency = -periodsLeftAfter), so fresh players
+        // are picked first.
+        const holdPool = availableIds.filter(pid => priorSet.has(pid));
+        holdPool.sort(cmp);
+        const actualHold = Math.min(holdMin, holdPool.length);
+        const holdovers = holdPool.slice(0, actualHold);
+        const usedSet = new Set(holdovers);
+        // Fill remaining slots: prefer eligible (remaining>0), fall back to any.
+        const fillPrimary = candidates.filter(pid => !usedSet.has(pid));
+        fillPrimary.sort(cmp);
+        const filled = [...holdovers, ...fillPrimary.slice(0, N - actualHold)];
+        if (filled.length < N) {
+          const fillFallback = availableIds
+            .filter(pid => !usedSet.has(pid) && !fillPrimary.includes(pid));
+          fillFallback.sort(cmp);
+          filled.push(...fillFallback.slice(0, N - filled.length));
+        }
+        selected = filled;
+      } else {
+        selected = candidates.slice(0, N);
+      }
       const selectedSet = new Set(selected);
       periodRosters[period] = selected;
 
@@ -504,6 +548,7 @@ class RotationEngine {
     const locks = constraints.locks || [];
     const continuity = constraints.continuity || 0;
     const globalMaxPeriods = constraints.globalMaxPeriods || null;
+    const maxSubsPerBreak = constraints.maxSubsPerBreak ?? null;
     let positionMax = constraints.positionMax || {};
     if (constraints.specialPosMax != null && Object.keys(positionMax).length === 0) {
       positionMax = { [this.positions[0]]: constraints.specialPosMax };
@@ -623,7 +668,7 @@ class RotationEngine {
     // Build frozen rosters for spacing continuity across the rebalance boundary
     const frozenRosters = frozen.map(pa => extractPidsFromAssignments(pa.assignments));
     const periodRosters = this._schedulePeriods(
-      remainingAvailable, periodsPerPlayer, remainingPeriods, false, frozenRosters
+      remainingAvailable, periodsPerPlayer, remainingPeriods, false, frozenRosters, maxSubsPerBreak
     );
 
     // Step 6: Assign positions (Phase 3), seeding from frozen data

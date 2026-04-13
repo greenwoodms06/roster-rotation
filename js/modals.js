@@ -138,7 +138,7 @@ const HELP_SECTIONS = [
     { title: 'Select Available Players', desc: 'Tap players from the Roster column to move them to Available. Drag to reorder — order determines starters (if enabled).' },
     { title: 'Game Format', desc: 'Use the <strong>+ / −</strong> stepper to pick any number of segments. Labels auto-derive: 4 = Quarters, 2 = Halves, 1 = Game, anything else = Periods. The engine divides playing time across these segments.' },
     { title: 'Generate Lineup', desc: 'Tap <strong>Generate Lineup</strong> to create a fair rotation. The engine balances equal playing time, season fairness, and position exposure. You land on the Lineup tab.' },
-    { title: 'Constraints (optional)', desc: 'Expand the Constraints panel to fine-tune generation. <strong>Position stickiness</strong> reduces mid-game position changes. <strong>Max periods</strong> caps how many periods any player plays. Tap a player name to <strong>lock</strong> them to a position.' },
+    { title: 'Constraints (optional)', desc: 'Expand the Constraints panel to fine-tune generation. <strong>Position stickiness</strong> reduces mid-game position changes. <strong>Max periods</strong> caps how many periods any player plays. <strong>Max subs / break</strong> limits roster changes between periods (useful for large rosters). Tap a player name to <strong>lock</strong> them to a position.' },
     { title: 'Re-generating', desc: 'You can go back to Game Day at any time to adjust who is available, change the format, or tweak constraints, then re-generate. This replaces the current lineup for that date. To add a second game on the same date (e.g. a tournament), the app will ask whether to add or replace.' },
   ]},
   { title: 'Lineup', items: [
@@ -240,6 +240,7 @@ function loadSettings() {
     defaultPlayerCount: 7,
     defaultContinuity: 0,
     defaultGlobalMaxPeriods: null,
+    defaultMaxSubsPerBreak: null,
     defaultPositionMax: null,
     defaultPeriodDuration: 720,
   };
@@ -381,6 +382,17 @@ function openSettings() {
             id: 'settingsPositionMaxLabel',
             minusDisabled: settings.defaultPositionMax == null,
             plusDisabled: settings.defaultPositionMax != null && settings.defaultPositionMax >= settings.defaultPeriods - 1,
+          })}
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Max subs / break</span>
+          ${renderStepperHtml({
+            minusFn: 'bumpSettingsMaxSubsPerBreak(-1)',
+            plusFn: 'bumpSettingsMaxSubsPerBreak(1)',
+            label: settings.defaultMaxSubsPerBreak == null ? 'Any' : String(settings.defaultMaxSubsPerBreak),
+            id: 'settingsMaxSubsPerBreakLabel',
+            minusDisabled: settings.defaultMaxSubsPerBreak === 0,
+            plusDisabled: settings.defaultMaxSubsPerBreak == null,
           })}
         </div>
       </div>
@@ -534,6 +546,35 @@ function bumpSettingsGlobalMaxPeriods(delta) {
   updateMaxPerPlayerStepper(settings);
 }
 
+function updateMaxSubsPerBreakStepper(settings) {
+  const labelEl = document.getElementById('settingsMaxSubsPerBreakLabel');
+  if (!labelEl) return;
+  labelEl.textContent = settings.defaultMaxSubsPerBreak == null ? 'Any' : String(settings.defaultMaxSubsPerBreak);
+  const wrap = labelEl.parentElement;
+  if (wrap) {
+    const [minusBtn, , plusBtn] = wrap.children;
+    if (minusBtn) minusBtn.disabled = settings.defaultMaxSubsPerBreak === 0;
+    if (plusBtn) plusBtn.disabled = settings.defaultMaxSubsPerBreak == null;
+  }
+}
+
+function bumpSettingsMaxSubsPerBreak(delta) {
+  const settings = loadSettings();
+  const maxVal = (settings.defaultPlayerCount || 1) - 1;
+  const cur = settings.defaultMaxSubsPerBreak;
+  let next;
+  if (cur == null) {
+    next = delta < 0 ? maxVal : null;
+  } else {
+    next = cur + delta;
+    if (next < 0) next = 0;
+    else if (next > maxVal) next = null;
+  }
+  settings.defaultMaxSubsPerBreak = next;
+  saveSettings(settings);
+  updateMaxSubsPerBreakStepper(settings);
+}
+
 function bumpSettingsPositionMax(delta) {
   const settings = loadSettings();
   const maxVal = settings.defaultPeriods - 1;
@@ -651,6 +692,7 @@ function resetGameDayDefaults() {
   settings.defaultPlayerCount = 7;
   settings.defaultContinuity = 0;
   settings.defaultGlobalMaxPeriods = null;
+  settings.defaultMaxSubsPerBreak = null;
   settings.defaultPositionMax = null;
   settings.defaultTimingPrecision = 'approx';
   settings.defaultPeriodDuration = 720;

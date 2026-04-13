@@ -27,6 +27,7 @@ let gameLocks = {};          // { pid: position }  --  player pinned to a positi
 let gameContinuity = 0;      // 0=off, 1=medium, 2=high
 let gamePositionMax = {};    // { pos: maxPeriods } -- per-position max constraint
 let gameGlobalMaxPeriods = null; // null=no limit, number=max periods any player plays
+let gameMaxSubsPerBreak = null;  // null=no limit, number=max subs between consecutive periods
 let lockPickerOpen = null;   // pid currently showing lock picker, or null
 
 // Tracking mode state (per game, inherited from season defaults)
@@ -601,6 +602,7 @@ function loadContextData() {
   gameContinuity = 0;
   gamePositionMax = {};
   gameGlobalMaxPeriods = null;
+  gameMaxSubsPerBreak = null;
   lockPickerOpen = null;
 
   document.getElementById('gameDate').value = new Date().toISOString().split('T')[0];
@@ -614,6 +616,7 @@ function loadContextData() {
   document.getElementById('toggleStarters').classList.toggle('on', starterMode);
   gameContinuity = settings.defaultContinuity || 0;
   gameGlobalMaxPeriods = settings.defaultGlobalMaxPeriods || null;
+  gameMaxSubsPerBreak = settings.defaultMaxSubsPerBreak ?? null;
   // Seed per-position max from settings default (applies uniformly to all positions)
   if (settings.defaultPositionMax != null && roster.positions) {
     for (const pos of roster.positions) gamePositionMax[pos] = settings.defaultPositionMax;
@@ -694,6 +697,7 @@ function showWelcome() {
   gameContinuity = 0;
   gamePositionMax = {};
   gameGlobalMaxPeriods = null;
+  gameMaxSubsPerBreak = null;
   lockPickerOpen = null;
   swapSelection = null;
   swapHighlight = null;
@@ -1764,8 +1768,13 @@ function renderConstraintControls() {
   if (gameGlobalMaxPeriods != null && gameGlobalMaxPeriods >= numPeriods) {
     gameGlobalMaxPeriods = null;
   }
+  // Clamp max subs if it equals or exceeds numPositions (effectively no limit)
+  const numPos = roster.positions.length;
+  if (gameMaxSubsPerBreak != null && gameMaxSubsPerBreak >= numPos) {
+    gameMaxSubsPerBreak = null;
+  }
   const hasAnyPosMax = Object.keys(gamePositionMax).length > 0;
-  const hasAnyConstraint = gameContinuity > 0 || gameGlobalMaxPeriods !== null || hasAnyPosMax || Object.keys(gameLocks).length > 0;
+  const hasAnyConstraint = gameContinuity > 0 || gameGlobalMaxPeriods !== null || gameMaxSubsPerBreak !== null || hasAnyPosMax || Object.keys(gameLocks).length > 0;
 
   const continuityLabels = ['Off', 'Med', 'High'];
 
@@ -1797,6 +1806,21 @@ function renderConstraintControls() {
   });
   html += '</div>';
 
+  // Max subs per break — stepper with "Any" sentinel
+  const msLabel = gameMaxSubsPerBreak === null ? 'Any' : String(gameMaxSubsPerBreak);
+  const msMinusDisabled = gameMaxSubsPerBreak === 0;
+  const msPlusDisabled = gameMaxSubsPerBreak === null;
+  html += '<div class="constraint-row">';
+  html += '<div class="constraint-label">Max subs / break<div class="constraint-sublabel">Limit roster changes between periods</div></div>';
+  html += renderStepperHtml({
+    minusFn: 'bumpMaxSubsPerBreak(-1)',
+    plusFn: 'bumpMaxSubsPerBreak(1)',
+    label: msLabel,
+    minusDisabled: msMinusDisabled,
+    plusDisabled: msPlusDisabled,
+  });
+  html += '</div>';
+
   // Per-position max — stepper per position
   html += `<div class="constraint-section-label">Max per position<span class="constraint-sublabel" style="display:block">Limit how many ${periodLabel} one player plays a position</span></div>`;
   for (const pos of roster.positions) {
@@ -1821,7 +1845,7 @@ function renderConstraintControls() {
   // Update the expand button badge
   const badge = document.getElementById('constraintBadge');
   if (badge) {
-    const count = (gameContinuity > 0 ? 1 : 0) + (gameGlobalMaxPeriods !== null ? 1 : 0) + Object.keys(gamePositionMax).length + Object.keys(gameLocks).length;
+    const count = (gameContinuity > 0 ? 1 : 0) + (gameGlobalMaxPeriods !== null ? 1 : 0) + (gameMaxSubsPerBreak !== null ? 1 : 0) + Object.keys(gamePositionMax).length + Object.keys(gameLocks).length;
     badge.textContent = count > 0 ? count : '';
     badge.classList.toggle('hidden', count === 0);
   }
@@ -1834,6 +1858,23 @@ function setContinuity(val) {
 
 function setGlobalMaxPeriods(val) {
   gameGlobalMaxPeriods = val;
+  renderConstraintControls();
+}
+
+function bumpMaxSubsPerBreak(delta) {
+  const numPos = roster?.positions?.length || 1;
+  const maxVal = numPos - 1;
+  const cur = gameMaxSubsPerBreak;
+  let next;
+  if (cur === null) {
+    // Any → stepping down restricts to max allowed value
+    next = delta < 0 ? maxVal : null;
+  } else {
+    next = cur + delta;
+    if (next < 0) next = 0;
+    else if (next > maxVal) next = null; // past the ceiling = Any
+  }
+  gameMaxSubsPerBreak = next;
   renderConstraintControls();
 }
 
@@ -1957,6 +1998,7 @@ function doGenerate(gameId) {
     continuity: gameContinuity,
     positionMax: gamePositionMax,
     globalMaxPeriods: gameGlobalMaxPeriods,
+    maxSubsPerBreak: gameMaxSubsPerBreak,
   };
 
   const stats = Storage.getSeasonStats(ctx.teamSlug, ctx.seasonSlug);
@@ -2399,6 +2441,7 @@ function addPeriodToPlan() {
     continuity: gameContinuity,
     positionMax: gamePositionMax,
     globalMaxPeriods: gameGlobalMaxPeriods,
+    maxSubsPerBreak: gameMaxSubsPerBreak,
   };
 
   const stats = Storage.getSeasonStats(ctx.teamSlug, ctx.seasonSlug);
@@ -2756,6 +2799,7 @@ function doRemovePeriod(periodIdx, mode /* 'all' | 'after' | 'none' */) {
       continuity: gameContinuity,
       positionMax: gamePositionMax,
       globalMaxPeriods: gameGlobalMaxPeriods,
+      maxSubsPerBreak: gameMaxSubsPerBreak,
     };
 
     const stats = Storage.getSeasonStats(ctx.teamSlug, ctx.seasonSlug);
@@ -2802,6 +2846,7 @@ function doRebalance(fromPeriodIdx, newPids = [], removedPids = []) {
     continuity: gameContinuity,
     positionMax: gamePositionMax,
     globalMaxPeriods: gameGlobalMaxPeriods,
+    maxSubsPerBreak: gameMaxSubsPerBreak,
   };
 
   const stats = Storage.getSeasonStats(ctx.teamSlug, ctx.seasonSlug);

@@ -864,3 +864,69 @@ suite('Spacing — fairness invariant holds with spacing (statistical)');
     assert(spread <= 1, `trial ${trial}: playing time spread <= 1 (got ${spread})`);
   }
 }
+
+// ── Max subs per break ────────────────────────────────────────────
+
+suite('Engine — maxSubsPerBreak caps roster churn between periods');
+{
+  // 10 players, 7 positions, 4 periods, K=1 → adjacent rosters share ≥ 6 players
+  const roster = makeRoster(10, ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST']);
+  run(ctx, `
+    globalThis._roster = ${JSON.stringify(roster)};
+    globalThis._engine = new RotationEngine(globalThis._roster, {});
+    globalThis._plan = globalThis._engine.generateGamePlan(
+      '2026-03-25', ${JSON.stringify(pids(10))}, 4, false,
+      { maxSubsPerBreak: 1 }
+    );
+  `);
+  const plan = run(ctx, 'globalThis._plan');
+
+  for (let i = 1; i < plan.periodAssignments.length; i++) {
+    const prev = new Set(Object.values(plan.periodAssignments[i - 1].assignments));
+    const cur = Object.values(plan.periodAssignments[i].assignments);
+    const shared = cur.filter(p => prev.has(p)).length;
+    assert(shared >= 6, `period ${i + 1}: shares ≥6 with prior (got ${shared})`);
+  }
+}
+
+suite('Engine — maxSubsPerBreak=0 freezes roster across periods');
+{
+  // 8 players, 7 positions: only 1 bench slot; K=0 means whoever starts plays all 4 periods
+  const roster = makeRoster(8, ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST']);
+  run(ctx, `
+    globalThis._roster = ${JSON.stringify(roster)};
+    globalThis._engine = new RotationEngine(globalThis._roster, {});
+    globalThis._plan = globalThis._engine.generateGamePlan(
+      '2026-03-25', ${JSON.stringify(pids(8))}, 4, false,
+      { maxSubsPerBreak: 0 }
+    );
+  `);
+  const plan = run(ctx, 'globalThis._plan');
+
+  const period0 = new Set(Object.values(plan.periodAssignments[0].assignments));
+  for (let i = 1; i < plan.periodAssignments.length; i++) {
+    const cur = new Set(Object.values(plan.periodAssignments[i].assignments));
+    const identical = cur.size === period0.size && [...cur].every(p => period0.has(p));
+    assert(identical, `period ${i + 1} roster identical to period 1 when K=0`);
+  }
+}
+
+suite('Engine — maxSubsPerBreak with globalMaxPeriods produces valid plan');
+{
+  // 10 players, 7 positions, 4 periods, K=1 + globalMax=3 (tight but feasible).
+  // Sub-cap takes precedence: some players may exceed their equal-time share.
+  const roster = makeRoster(10, ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST']);
+  run(ctx, `
+    globalThis._engine2 = new RotationEngine(${JSON.stringify(roster)}, {});
+    globalThis._plan2 = globalThis._engine2.generateGamePlan(
+      '2026-03-25', ${JSON.stringify(pids(10))}, 4, false,
+      { maxSubsPerBreak: 1, globalMaxPeriods: 3 }
+    );
+  `);
+  const plan = run(ctx, 'globalThis._plan2');
+  assertEqual(plan.periodAssignments.length, 4, 'all 4 periods generated');
+  for (let i = 0; i < 4; i++) {
+    assertEqual(Object.keys(plan.periodAssignments[i].assignments).length, 7,
+      `period ${i + 1} fully staffed`);
+  }
+}
