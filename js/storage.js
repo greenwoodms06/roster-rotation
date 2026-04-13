@@ -1,6 +1,7 @@
 /**
- * storage.js — Data persistence layer (localStorage, multi-team/season)
- * No dependencies on algorithm or UI code.
+ * storage.js — Data persistence layer (multi-team/season)
+ * Routes all reads/writes through StorageAdapter (see storage_adapter.js)
+ * so the storage backend is swappable for Capacitor Preferences later.
  */
 
 // ── Utility: slugify ────────────────────────────────────────────────
@@ -18,12 +19,12 @@ const Storage = {
   // ── Team Registry ──────────────────────────────────────────────
 
   loadTeams() {
-    const raw = localStorage.getItem('rot_teams');
+    const raw = StorageAdapter.get('rot_teams');
     return raw ? JSON.parse(raw) : [];
   },
 
   saveTeams(teams) {
-    localStorage.setItem('rot_teams', JSON.stringify(teams));
+    StorageAdapter.set('rot_teams', JSON.stringify(teams));
   },
 
   addTeam(team) {
@@ -44,11 +45,11 @@ const Storage = {
 
     const seasons = this.loadSeasons(teamSlug);
     for (const s of seasons) {
-      localStorage.removeItem(this._key(teamSlug, s.slug, 'roster'));
-      localStorage.removeItem(this._key(teamSlug, s.slug, 'games'));
-      localStorage.removeItem(this._key(teamSlug, s.slug, 'plays'));
+      StorageAdapter.remove(this._key(teamSlug, s.slug, 'roster'));
+      StorageAdapter.remove(this._key(teamSlug, s.slug, 'games'));
+      StorageAdapter.remove(this._key(teamSlug, s.slug, 'plays'));
     }
-    localStorage.removeItem(`rot_${teamSlug}_seasons`);
+    StorageAdapter.remove(`rot_${teamSlug}_seasons`);
 
     teams = teams.filter(t => t.slug !== teamSlug);
     this.saveTeams(teams);
@@ -58,12 +59,12 @@ const Storage = {
   // ── Season Registry (per team) ─────────────────────────────────
 
   loadSeasons(teamSlug) {
-    const raw = localStorage.getItem(`rot_${teamSlug}_seasons`);
+    const raw = StorageAdapter.get(`rot_${teamSlug}_seasons`);
     return raw ? JSON.parse(raw) : [];
   },
 
   saveSeasons(teamSlug, seasons) {
-    localStorage.setItem(`rot_${teamSlug}_seasons`, JSON.stringify(seasons));
+    StorageAdapter.set(`rot_${teamSlug}_seasons`, JSON.stringify(seasons));
   },
 
   addSeason(teamSlug, season) {
@@ -79,9 +80,9 @@ const Storage = {
   },
 
   deleteSeason(teamSlug, seasonSlug) {
-    localStorage.removeItem(this._key(teamSlug, seasonSlug, 'roster'));
-    localStorage.removeItem(this._key(teamSlug, seasonSlug, 'games'));
-    localStorage.removeItem(this._key(teamSlug, seasonSlug, 'plays'));
+    StorageAdapter.remove(this._key(teamSlug, seasonSlug, 'roster'));
+    StorageAdapter.remove(this._key(teamSlug, seasonSlug, 'games'));
+    StorageAdapter.remove(this._key(teamSlug, seasonSlug, 'plays'));
     let seasons = this.loadSeasons(teamSlug);
     seasons = seasons.filter(s => s.slug !== seasonSlug);
     this.saveSeasons(teamSlug, seasons);
@@ -91,12 +92,12 @@ const Storage = {
   // ── Active Context ─────────────────────────────────────────────
 
   loadContext() {
-    const raw = localStorage.getItem('rot_context');
+    const raw = StorageAdapter.get('rot_context');
     return raw ? JSON.parse(raw) : null;
   },
 
   saveContext(ctx) {
-    localStorage.setItem('rot_context', JSON.stringify(ctx));
+    StorageAdapter.set('rot_context', JSON.stringify(ctx));
   },
 
   // ── Data Keys ──────────────────────────────────────────────────
@@ -108,23 +109,23 @@ const Storage = {
   // ── Roster ─────────────────────────────────────────────────────
 
   saveRoster(teamSlug, seasonSlug, roster) {
-    localStorage.setItem(this._key(teamSlug, seasonSlug, 'roster'), JSON.stringify(roster));
+    StorageAdapter.set(this._key(teamSlug, seasonSlug, 'roster'), JSON.stringify(roster));
   },
 
   loadRoster(teamSlug, seasonSlug) {
-    const raw = localStorage.getItem(this._key(teamSlug, seasonSlug, 'roster'));
+    const raw = StorageAdapter.get(this._key(teamSlug, seasonSlug, 'roster'));
     return raw ? JSON.parse(raw) : null;
   },
 
   // ── Plays ─────────────────────────────────────────────────────
 
   loadPlays(teamSlug, seasonSlug) {
-    const raw = localStorage.getItem(this._key(teamSlug, seasonSlug, 'plays'));
+    const raw = StorageAdapter.get(this._key(teamSlug, seasonSlug, 'plays'));
     return raw ? JSON.parse(raw) : [];
   },
 
   savePlays(teamSlug, seasonSlug, plays) {
-    localStorage.setItem(this._key(teamSlug, seasonSlug, 'plays'), JSON.stringify(plays));
+    StorageAdapter.set(this._key(teamSlug, seasonSlug, 'plays'), JSON.stringify(plays));
   },
 
   // ── Games ──────────────────────────────────────────────────────
@@ -138,11 +139,11 @@ const Storage = {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
       return a.gameId.localeCompare(b.gameId);
     });
-    localStorage.setItem(this._key(teamSlug, seasonSlug, 'games'), JSON.stringify(games));
+    StorageAdapter.set(this._key(teamSlug, seasonSlug, 'games'), JSON.stringify(games));
   },
 
   loadAllGames(teamSlug, seasonSlug) {
-    const raw = localStorage.getItem(this._key(teamSlug, seasonSlug, 'games'));
+    const raw = StorageAdapter.get(this._key(teamSlug, seasonSlug, 'games'));
     if (!raw) return [];
     let games = JSON.parse(raw);
 
@@ -159,7 +160,7 @@ const Storage = {
     }
     if (needsSave) {
       games = migrateGamesToV4(games);
-      localStorage.setItem(this._key(teamSlug, seasonSlug, 'games'), JSON.stringify(games));
+      StorageAdapter.set(this._key(teamSlug, seasonSlug, 'games'), JSON.stringify(games));
     }
     return games;
   },
@@ -167,7 +168,7 @@ const Storage = {
   deleteGame(teamSlug, seasonSlug, gameId) {
     const games = this.loadAllGames(teamSlug, seasonSlug)
       .filter(g => g.gameId !== gameId);
-    localStorage.setItem(this._key(teamSlug, seasonSlug, 'games'), JSON.stringify(games));
+    StorageAdapter.set(this._key(teamSlug, seasonSlug, 'games'), JSON.stringify(games));
   },
 
   // ── Season Stats ───────────────────────────────────────────────
@@ -278,13 +279,10 @@ const Storage = {
    * Used before a full backup restore.
    */
   clearAll() {
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('rot_') && key !== 'rot_settings') keysToRemove.push(key);
-    }
-    for (const key of keysToRemove) {
-      localStorage.removeItem(key);
+    for (const key of StorageAdapter.keys()) {
+      if (key.startsWith('rot_') && key !== 'rot_settings') {
+        StorageAdapter.remove(key);
+      }
     }
   },
 
@@ -367,7 +365,7 @@ const Storage = {
       if (Array.isArray(seasonData.games) && seasonData.games.length > 0) {
         // Migrate v3 games to v4 on import
         const games = (version === 3) ? migrateGamesToV4(seasonData.games) : seasonData.games;
-        localStorage.setItem(
+        StorageAdapter.set(
           this._key(teamData.slug, seasonData.slug, 'games'),
           JSON.stringify(games)
         );

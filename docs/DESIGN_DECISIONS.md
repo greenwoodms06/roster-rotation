@@ -898,3 +898,17 @@ The clock and sub timing popup support both elapsed (count up, 00:00 → 12:00) 
 ## Required Field Validation
 
 Player name, team name, and season name inputs use a "red pulse" validation pattern: a `.field-required` CSS class adds a red asterisk to the label, and `pulseInvalid()` applies a red border + 300ms shake animation when submitting empty. This is lighter than inline validation (which would require per-keystroke checking) while still giving clear tactile feedback on mobile.
+
+## File Organization (post-Capacitor-prep)
+
+Originally `app.js` was a single ~5,700 LoC monolith. During the Capacitor-prep session it was split into feature-sized files (`utils.js`, `fairness.js`, `clock.js`, `game_notes.js`, `backup.js`, `season_view.js`, `modals.js`) with `app.js` retaining the global state, init flow, lineup/swap/edit-roster/generate UI, and constraint controls. Total reduction: ~1,640 lines extracted.
+
+The split is **intentionally lateral**: every extracted file is loaded as a plain `<script>` tag in a fixed order, all functions remain global, and no `import/export` or module wrapping was introduced. This preserves the ~134 inline `onclick=` handlers in `index.html` and dynamically-generated HTML strings, which would all break under `<script type="module">` (modules execute in their own scope; inline handlers can only see globals).
+
+Files were split by feature (a tab's worth of concern, or a coherent UI subsystem) rather than by layer (no `controllers/`, `views/`, `helpers/` folders). This matches the codebase's no-framework, globals-everywhere ethos: each file maps to a thing the user interacts with, not an architectural role.
+
+Three regions were deliberately **not** extracted in this pass — lineup display (~287 LoC), edit-roster / late-arrival (~408 LoC), and the swap + sub popup (several hundred LoC). They mutate too many globals and lack test coverage. They can be tackled later once a Playwright smoke suite is in place to catch regressions.
+
+## Storage Adapter Seam
+
+All `localStorage.*` calls are routed through `StorageAdapter` (defined in `storage_adapter.js`). The adapter currently delegates straight to `localStorage` synchronously. Its purpose is to provide a single swap point for Capacitor's Preferences plugin on native builds. Keeping the adapter synchronous preserves call-site shape — when native lands, hot paths can migrate to async selectively rather than the whole codebase converting at once.

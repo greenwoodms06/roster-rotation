@@ -144,8 +144,15 @@ export function createContext(opts = {}) {
   const context = vm.createContext(sandbox);
 
   // Load files in order
-  const files = ['js/formations.js', 'js/credit.js', 'js/storage.js', 'js/engine.js'];
+  const files = ['js/formations.js', 'js/credit.js', 'js/storage_adapter.js', 'js/storage.js', 'js/engine.js'];
   if (opts.withApp) {
+    files.push('js/utils.js');
+    files.push('js/fairness.js');
+    files.push('js/clock.js');
+    files.push('js/game_notes.js');
+    files.push('js/backup.js');
+    files.push('js/season_view.js');
+    files.push('js/modals.js');
     // Stub field.js functions that app.js calls at init
     vm.runInContext(`
       function renderField() {}

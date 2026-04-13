@@ -29,7 +29,10 @@
   --overlay: rgba(0,0,0,0.7);
   --radius: 12px;
   --radius-sm: 8px;
+  --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
 }
 
 /* -- Light Theme -------------------------------- */
@@ -79,7 +82,7 @@ html, body {
 }
 
 header {
-  padding: 16px 20px 8px;
+  padding: calc(16px + var(--safe-top)) calc(20px + var(--safe-right)) 8px calc(20px + var(--safe-left));
   display: flex;
   align-items: center;
   gap: 10px;
