@@ -4860,12 +4860,13 @@ function showToast(msg, type = '') {
 const HELP_SECTIONS = [
   { title: 'Getting Started', items: [
     { title: 'Create a Team & Season', desc: 'Tap the header label (e.g. "No team") to open the context picker. Create a team, then a season. Each season has its own roster, positions, and game history.' },
+    { title: 'Players per Side', desc: 'When creating a season, pick the sport and use the <strong>Players per side</strong> stepper (e.g. 7v7, 5v5, 11v11). The positions field auto-fills from the sport. Edit positions directly to override, or step up to sizes beyond a preset to extend the list.' },
     { title: 'Add Players', desc: 'On the <strong>Roster</strong> tab, tap <strong>+ Add</strong> to add players. You need at least as many players as positions to generate a lineup.' },
     { title: 'Position Preferences', desc: 'Tap any player on the Roster to set position weights. Cycle through: Normal, Prefer, Strong Prefer, Never. The engine uses these to bias assignments while keeping things fair.' },
   ]},
   { title: 'Game Day', items: [
     { title: 'Select Available Players', desc: 'Tap players from the Roster column to move them to Available. Drag to reorder — order determines starters (if enabled).' },
-    { title: 'Game Format', desc: 'Choose 4 quarters, 3 periods, 2 halves, or 1 game. The engine divides playing time across these segments.' },
+    { title: 'Game Format', desc: 'Use the <strong>+ / −</strong> stepper to pick any number of segments. Labels auto-derive: 4 = Quarters, 2 = Halves, 1 = Game, anything else = Periods. The engine divides playing time across these segments.' },
     { title: 'Generate Lineup', desc: 'Tap <strong>Generate Lineup</strong> to create a fair rotation. The engine balances equal playing time, season fairness, and position exposure. You land on the Lineup tab.' },
     { title: 'Constraints (optional)', desc: 'Expand the Constraints panel to fine-tune generation. <strong>Position stickiness</strong> reduces mid-game position changes. <strong>Max periods</strong> caps how many periods any player plays. Tap a player name to <strong>lock</strong> them to a position.' },
     { title: 'Re-generating', desc: 'You can go back to Game Day at any time to adjust who is available, change the format, or tweak constraints, then re-generate. This replaces the current lineup for that date. To add a second game on the same date (e.g. a tournament), the app will ask whether to add or replace.' },
@@ -4877,6 +4878,8 @@ const HELP_SECTIONS = [
     { title: 'Game Clock', desc: 'The clock row shows elapsed or remaining time. Tap <strong>▶</strong> to start, <strong>⏸</strong> to pause, <strong>↺</strong> to reset. Tap the duration to change period length. The <strong>↑/↓</strong> button toggles count direction.' },
     { title: 'Edit Lineup', desc: 'Tap <strong>Edit Lineup</strong> to add a late arrival or remove a player mid-game (injury or early departure). The engine rebalances automatically from that point forward.' },
     { title: 'Rebalance', desc: 'The refresh icon on each period header (except the first) re-optimizes the lineup from that period onward, keeping earlier periods frozen.' },
+    { title: 'Add a Period', desc: 'Tap <strong>+ Add Quarter</strong> (or Period / Half) at the bottom of the lineup to extend the game. Existing periods stay frozen; the new one is generated fairly against that history. Useful for overtime, extra drills, or format changes.' },
+    { title: 'Remove a Period', desc: 'Tap the trash icon on any period card. A modal offers four options: <strong>Rebalance All</strong> (regenerates every remaining period), <strong>Rebalance After</strong> (freezes earlier periods, regenerates the tail), <strong>Remove Only</strong> (deletes with no regeneration), or Cancel. Each option shows inline which goals will be cleared.' },
     { title: 'Timeline Bars', desc: 'Colored bars on each player row show how long they played each position during that period. Tap a bar for a detailed breakdown popup with per-period stats.' },
     { title: 'Scrimmage', desc: 'Check <strong>Scrimmage</strong> to exclude a game from season stats. Useful for practice games.' },
     { title: 'Game Notes', desc: 'Tap the notes area below the clock to add free-text notes for the game. Notes are saved automatically.' },

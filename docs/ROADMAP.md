@@ -188,6 +188,7 @@
 ### UI / UX
 - [x] Light theme option
 - [x] Help screen: searchable, scrollable feature reference accessible from ⋮ menu
+- [ ] AI/LLM-assisted setup — copyable prompts + in-app "Paste from AI" importer for roster/team setup; see `docs/IDEA_AI_ASSISTED_SETUP.md`. Zero-backend, coach uses any LLM they already have.
 - [ ] Method for providing standardized/anonymized feedback.
 - [ ] Season modal: collapse "Players per side" stepper + "Positions" text field into a single input (the position list implies the count). Either hide the stepper, or make the stepper add/remove tokens from the end of the positions list. Needs UX design — custom abbreviations should stay editable.
 - [ ] Formation curation: audit per-sport formation lists for visually redundant layouts on phone-sized SVG field (e.g., soccer 7v7 "2-3-1" vs "2-3-1 Narrow" differ by ~10 units). Keep only formations where a coach would immediately see a different shape.
