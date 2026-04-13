@@ -104,7 +104,7 @@ Each file declares globals that subsequent files depend on. This is intentional 
 
 | File | Lines | Purpose |
 |---|---|---|
-| `js/formations.js` | ~370 | `SPORTS` (single source of truth), derived `POSITION_PRESETS`, `FORMATIONS`, `SPORT_ICONS`, `DEFAULT_POSITIONS`, `makePresetKey()`, `parsePresetKey()`, `matchPresetFromPositions()`, `getSeasonPreset()`, `generateAutoLayout()` |
+| `js/formations.js` | ~280 | `SPORTS` (unified per-sport shape with `positionPool` + `byCount[N]`), `DEFAULT_POSITIONS`, `getPositionsForCount()`, `getFormationsForCount()`, `getFieldBg()`, `findSportAndCount()`, `parseLegacyPresetKey()` (compat shim), `getSeasonSport()`, `generateAutoLayout()` |
 | `js/storage.js` | ~340 | `Storage` object (roster, games, plays CRUD, v3 export/import, backup/restore, clearAll), `slugify()` |
 | `js/engine.js` | ~390 | `RotationEngine` class, `getPlayerSummary()` |
 | `js/field.js` | ~1300 | Field tab rendering, SVG field backgrounds, drag handling, plays management, route drawing, defense overlay, standalone mode |
@@ -740,6 +740,61 @@ With spacing, rest distributes naturally:
 - Phase 3 (position assignment / cost function) — unchanged
 - Public API of `generateGamePlan` — no new parameters (spacing is always-on, invisible to the coach)
 - Jitter (`Math.random() * 0.01`) — only in `_buildCostMatrix` (Phase 3), does not affect period scheduling
+
+## Unified Sports Shape (v3.16)
+
+Before v3.16, sport/format data was split across four parallel tables: `SPORTS` (metadata + `formats[]`), `POSITION_PRESETS` (derived lookup by `"soccer-7v7"`-style key), `FORMATIONS` (field layouts by same key), and `SPORT_ICONS` (icon by same key). Preset keys were concatenated strings (`makePresetKey(sport, format)`) with an asymmetric empty-format case (`"hockey"` vs `"basketball-3v3"`). This made adding a new sport or a new format touch four tables and required awkward string parsing.
+
+v3.16 collapses this into one shape per sport:
+
+```js
+SPORTS[sport] = {
+  name, icon, fieldBg,
+  defaultN,          // typical player count (soccer=7, basketball=5, hockey=6, …)
+  hasSpecialFirst,   // true if positions[0] is a keeper/goalie-like role
+  positionPool: [...ordered essential → specialized],
+  byCount: {
+    N: { positions: [...], formations: [{name, coords}] },
+    ...
+  },
+};
+```
+
+### Position derivation for arbitrary N
+
+`getPositionsForCount(sport, n)`:
+1. If `byCount[n]` exists → return its preset positions (exact match)
+2. Else if `positionPool` has entries → return `pool.slice(0, n)`, padded with `P{i}` if `n > pool.length`
+3. Else (custom) → generate `P1..Pn`
+
+This means stepping through player counts always produces a sensible position list: known formats are exact, intermediate counts use the sport's canonical vocabulary, and extreme counts overflow cleanly.
+
+### Legacy preset migration
+
+Existing seasons stored with `preset: "soccer-7v7"` are read transparently. `getSeasonSport()` checks in order:
+1. Modern shape: `season.sport + season.playerCount`
+2. Legacy shape: `season.preset` → `parseLegacyPresetKey()` extracts `{sport, n}` from strings like `"soccer-7v7"` (digit extracted from `Nv?` format) or sport-only keys like `"hockey"` (falls back to `defaultN`)
+3. Fallback: `findSportAndCount(roster.positions)` (sorted-set match across all sports' byCount entries)
+
+New seasons write `{sport, playerCount}`. The legacy `preset` field is preserved in backups for downgrade safety but no longer read by modern code paths.
+
+`settings.defaultFormat` ("7v7") migrates to `settings.defaultPlayerCount` (7) on first load after the upgrade — the regex `^(\d+)v\d+$` pulls the count out of the old string.
+
+### Position pool ordering notes
+
+The pool is a judgment call per sport, chosen for sensible subsets:
+- **Soccer:** `[GK, CM, ST, LB, RB, LW, RW, CB, LM, RM, LCB, RCB, LF, RF]` — GK first, then central spine, then wings/depth
+- **Football:** `[QB, C, RB, TE, WR1, WR2, WR3, LG, RG, LT, RT, FB]` — skill positions before line
+- **Basketball:** `[PG, SG, SF, PF, C]` — uses the 5v5 vocab as canonical; the 3v3 preset (`[G, F, C]`) is a separate exact match at N=3
+- **Hockey:** `[G, C, LD, RD, LW, RW]`
+- **Lacrosse:** `[G, D1, M1, A1, D2, M2, A2, D3, M3, A3]` — interleaved so subsets get one of each line
+- **Baseball:** fixed 9-player only; pool = positions of the single byCount entry
+
+Coaches can always override by editing the positions text field directly, and that edit flows back to update the stepper count.
+
+### Cap at 20 (not 999)
+
+Period count allows 1–999 because the engine iterates linearly over periods. Player count caps at 20 because Phase 3 (position assignment) uses brute-force permutation evaluation (O(N!)) — already slow at N=11 on phone hardware. A future session will swap in the Hungarian algorithm (O(N³)) and the cap can lift.
 
 ## Arbitrary Segment Count
 

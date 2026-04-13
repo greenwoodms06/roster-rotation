@@ -52,6 +52,12 @@ The Field tab works immediately with no setup. Open the app and switch to the Fi
 2. Create a season (name + choose a position preset or define custom positions)
 3. Add your players on the Roster tab, with any position weight preferences
 
+Season creation uses a Sport dropdown plus a **Players per side** stepper (e.g. 7v7, 5v5, 11v11). Any integer from 2 to 20 is allowed. Changing the stepper or the sport auto-fills the Positions text field:
+- If the sport has an exact preset for that count, it uses the preset positions.
+- Otherwise, it fills from the sport's canonical position pool (ordered essential → specialized), padding with `P#` if the count exceeds the pool.
+- Editing the Positions text directly also updates the stepper to match the new count.
+- "Custom" sport leaves positions freeform (no auto-fill).
+
 ### Game Day
 1. Open the app - Game Day tab
 2. Set the game format with the `+/−` stepper (any count from 1 to 999; label auto-derives: 4 Quarters, 2 Halves, 1 Game, everything else as Periods)
@@ -126,7 +132,7 @@ All data lives on your device. Use the **⋮** menu in the header:
 Tap **⋮ → Settings** to customize the app:
 
 - **Theme** -- Dark, Light, or System (follows your phone's setting)
-- **Game Structure** -- default sport, field format, game format (stepper: any count from 1 to 999; seeds new games only), segment length (MM:SS), starter mode, position stickiness, max segments per player
+- **Game Structure** -- default sport, default players per side (2–20), game format (stepper: any count from 1 to 999; seeds new games only), segment length (MM:SS), starter mode, position stickiness, max segments per player. Changing the default sport resets the player count to that sport's typical default (e.g., soccer → 7, basketball → 5, hockey → 6).
 - **Tracking & Clock** -- timing precision (Approx / Exact), clock direction (↓ Down / ↑ Up)
 - **Hints** -- show or dismiss all first-use tip banners
 
