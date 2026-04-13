@@ -179,6 +179,7 @@
 ## Future Ideas (Unprioritized)
 
 ### Algorithm & Constraints
+- [ ] Position groups (offense / defense / special teams) — tabled; see `docs/IDEA_POSITION_GROUPS.md`. Deferred until a football coach asks for it. Two-seasons workaround serviceable in the interim.
 - [ ] Buddy system: always-together or never-together player pairs
 - [ ] Zone continuity: keep players in the same zone across periods
 - [ ] Fatigue awareness: prefer not to play a player consecutive periods if subs are available

@@ -61,6 +61,7 @@ let fieldSelectedZone = null; // selected zone index for deletion, or null
 let fieldStandaloneSport = 'soccer';       // active sport when no team/season context
 let fieldStandaloneCount = 7;              // active player count when no team/season context
 let seasonModalCount = 7;                  // working player count for the Season modal stepper
+let playerSummaryCollapsed = true;         // lineup tab's player summary card starts collapsed
 let fieldCustomCount = 7;                // number of dots in custom sport mode
 let fieldCustomFieldType = 'generic';    // field background for custom sport
 
@@ -2383,6 +2384,19 @@ function renderLineup() {
   html += `<textarea class="game-notes" id="gameNotesInput" placeholder="Tap to add notes..." oninput="saveGameNotes()">${esc(plan.notes || '')}</textarea>`;
   html += '</div>';
 
+  // ── Player Summary (collapsible, collapsed by default) ──
+  const summaryCollapsedClass = playerSummaryCollapsed ? ' collapsed' : '';
+  const summaryChevronClass = playerSummaryCollapsed ? ' collapsed' : '';
+  html += `<div class="card summary-card${summaryCollapsedClass}" id="playerSummaryCard">`;
+  html += `<div class="card-title summary-header" onclick="togglePlayerSummary()" style="cursor:pointer;-webkit-user-select:none;user-select:none"><span><span class="period-chevron${summaryChevronClass}">&#x25BE;</span> Player Summary</span></div>`;
+  html += '<div class="summary-body">';
+  html += '<table class="season-table"><thead><tr><th>Player</th><th>Played</th><th>Positions</th></tr></thead><tbody>';
+  for (const pid of plan.availablePlayers) {
+    const s = summary[pid];
+    html += `<tr><td>${displayNameHtml(pid)}</td><td>${fmtPeriods(s.periodsPlayed)}/${plan.numPeriods}</td><td style="font-size:11px">${s.positions.join(', ')}</td></tr>`;
+  }
+  html += '</tbody></table></div></div>';
+
   // ── Swap hint ──
   if (swapSelection) {
     const selName = displayName(swapSelection.pid);
@@ -2494,18 +2508,20 @@ function renderLineup() {
     html += '</div>';
   }
 
-  // Add-period button (appears after last period card, before summary)
+  // Add-period button (appears after the last period card)
   const nextLabel = getPeriodLabel(plan.numPeriods + 1);
   html += `<button class="add-period-btn" onclick="addPeriodToPlan()">+ Add ${nextLabel}</button>`;
 
-  html += '<div class="card"><div class="card-title">Player Summary</div>';
-  html += '<table class="season-table"><thead><tr><th>Player</th><th>Played</th><th>Positions</th></tr></thead><tbody>';
-  for (const pid of plan.availablePlayers) {
-    const s = summary[pid];
-    html += `<tr><td>${displayNameHtml(pid)}</td><td>${fmtPeriods(s.periodsPlayed)}/${plan.numPeriods}</td><td style="font-size:11px">${s.positions.join(', ')}</td></tr>`;
-  }
-  html += '</tbody></table></div>';
   el.innerHTML = html;
+}
+
+function togglePlayerSummary() {
+  playerSummaryCollapsed = !playerSummaryCollapsed;
+  const card = document.getElementById('playerSummaryCard');
+  if (!card) return;
+  card.classList.toggle('collapsed', playerSummaryCollapsed);
+  const chevron = card.querySelector('.period-chevron');
+  if (chevron) chevron.classList.toggle('collapsed', playerSummaryCollapsed);
 }
 
 function addPeriodToPlan() {
