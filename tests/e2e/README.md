@@ -46,19 +46,23 @@ npx playwright show-report              # after a failing run
 | `settings.spec.mjs` | Theme + colorblind persistence across reload |
 | `constraints.spec.mjs` | Global max periods honored by the engine |
 
-## Selector TODOs
+## Status
 
-A few tests have `TODO(selectors)` comments — the remaining unverified
-selectors are for dynamically-generated widgets (per-period
-remove/trash button, lineup player rows, edit-roster modal rows, inside
-the constraints panel). Those regions produce complex dynamic HTML and
-the best-effort selectors may need tuning. **Use `npm run test:ui`**
-(Playwright's interactive UI mode) for the fastest feedback loop — it
-lets you hover-to-inspect the actual rendered DOM and copy working
-selectors.
+All 13 specs pass against the current app. When adding new tests or the
+UI changes, use `npm run test:ui` (Playwright's interactive UI mode) for
+the fastest feedback loop — it lets you hover-to-inspect the actual
+rendered DOM and copy working selectors.
 
-When you fix a selector, consider promoting it to a named locator in
-`helpers.mjs` so other specs benefit.
+When you fix or find a good selector, consider promoting it to a named
+locator in `helpers.mjs` so other specs benefit.
+
+## Bug caught on first run
+
+The initial round-trip backup test caught a real bug: `backup.js`
+validated `data.version !== 3` and rejected v4 backup files on restore,
+even though `Storage.importBackup` already supported both v3 and v4.
+Since `Storage.exportAll()` writes `version: 4`, every backup created by
+the current app was unrestorable. Fixed during scaffolding.
 
 ## Gotchas discovered on first run
 

@@ -907,7 +907,7 @@ The split is **intentionally lateral**: every extracted file is loaded as a plai
 
 Files were split by feature (a tab's worth of concern, or a coherent UI subsystem) rather than by layer (no `controllers/`, `views/`, `helpers/` folders). This matches the codebase's no-framework, globals-everywhere ethos: each file maps to a thing the user interacts with, not an architectural role.
 
-Three regions were deliberately **not** extracted in this pass — lineup display (~287 LoC), edit-roster / late-arrival (~408 LoC), and the swap + sub popup (several hundred LoC). They mutate too many globals and lack test coverage. They can be tackled later once a Playwright smoke suite is in place to catch regressions.
+Three regions were deliberately **not** extracted in this pass — lineup display (~287 LoC), edit-roster / late-arrival (~408 LoC), and the swap + sub popup (several hundred LoC). They mutate too many globals and coupling is dense. The Playwright smoke suite added alongside this split (`tests/e2e/`) exercises the critical flows through these regions, so future extractions have a regression net — but the split is still risky enough to defer until there's a motivating reason.
 
 ## Storage Adapter Seam
 

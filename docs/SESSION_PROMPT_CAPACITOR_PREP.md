@@ -1,5 +1,7 @@
 # Session Prompt: Capacitor Prep — Restructure & Hardening
 
+> **Status: completed.** Outcomes captured in `CLAUDE.md` (script load order, SW gating, Playwright usage) and `docs/DESIGN_DECISIONS.md` (File Organization, Storage Adapter Seam). `app.js` went from 5,705 → 4,067 LoC via 7 feature-split files. Playwright smoke suite in `tests/e2e/` at 13/13 green. One real bug caught during scaffolding: `backup.js` rejected v4 backup files on restore; fixed. `CACHE_NAME` at `rotation-v3.30`. Retained here as historical context for the decisions made.
+
 ## Goal
 
 Prepare this vanilla-JS PWA to be wrapped with Capacitor for Google Play + App Store distribution, without abandoning the zero-build, zero-npm, zero-bundler ethos. The PWA must keep working standalone on GitHub Pages after these changes.
