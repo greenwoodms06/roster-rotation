@@ -769,7 +769,7 @@ function switchTab(name, btn) {
 const TAB_HINTS = {
   roster: '\u2022 Tap <strong>+ Add</strong> to add players.<br>\u2022 Tap any player to set position preferences.',
   gameday: '\u2022 Tap players on the left to add them to the game.<br>\u2022 Drag to reorder \u2014 first in list start (if enabled).<br>\u2022 Tap a name to lock a position.<br>\u2022 Then tap <strong>Generate Lineup</strong>.',
-  lineup: '\u2022 Tap two players in the same period to <strong>swap</strong>.<br>\u2022 <strong>Edit</strong> in-game lineup availability and rebalance.<br>\u2022 Use <strong>+/\u2212</strong> to track goals.<br>\u2022 Check <strong>Scrimmage</strong> to exclude from season stats.',
+  lineup: '\u2022 Tap two players in the same period to <strong>swap</strong>.<br>\u2022 <strong>Edit</strong> in-game lineup availability and rebalance.<br>\u2022 Use <strong>+/\u2212</strong> to track score.<br>\u2022 Check <strong>Scrimmage</strong> to exclude from season stats.',
   season: '\u2022 Select <strong>tabs</strong> to explore season stats.',
   field: '\u2022 Drag dots to arrange formations.<br>\u2022 Use the <strong>pencil</strong> and <strong>box</strong> to draw routes and zones.<br>\u2022 Toggle on/off player labels (<strong>Aa</strong>) and defense (<strong>DEF</strong>).<br>\u2022 Create and save plays for quick reuse.',
 };
