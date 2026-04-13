@@ -143,7 +143,7 @@
 
 ## Next Up
 
-- [ ] **App store distribution** -- wrap PWA with Capacitor for Google Play + App Store (see docs/DISTRIBUTION_STRATEGY.md)
+- [ ] **App store distribution** -- wrap PWA with Capacitor for Google Play + App Store. Prep work scoped in `docs/SESSION_PROMPT_CAPACITOR_PREP.md` (SW gating, safe-area insets, storage adapter seam, app.js splits, Playwright smoke suite). Wrapping itself is a follow-on session.
 - [ ] **Cloud backup** -- client-side backup to user's own cloud storage (Google Drive, iCloud). No backend. See docs/DISTRIBUTION_STRATEGY.md Phase 3.
 
 ## Recently Completed
