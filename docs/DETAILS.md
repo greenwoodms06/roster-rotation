@@ -54,7 +54,7 @@ The Field tab works immediately with no setup. Open the app and switch to the Fi
 
 ### Game Day
 1. Open the app - Game Day tab
-2. Set the game format (4 quarters, 3 periods, 2 halves, or 1 game)
+2. Set the game format with the `+/−` stepper (any count from 1 to 999; label auto-derives: 4 Quarters, 2 Halves, 1 Game, everything else as Periods)
 3. Check who's available, drag the grip handle to reorder for starters
 4. Optionally expand Constraints to set pins, stickiness, position max, or global max periods
 5. Tap **Generate Lineup**
@@ -77,6 +77,8 @@ The **Lineup** tab is designed for sideline use during a game:
 - **Game notes** -- a text area at the top of the Lineup tab for freeform notes. Auto-saves on every keystroke. Notes are preserved when re-generating and included in share text.
 - **Edit Roster (late arrival / early departure)** -- tap the Edit button to add a player who showed up late or remove a player who left early. The engine rebalances all remaining periods fairly, freezing periods already played.
 - **Rebalance** -- tap the ↺ icon on any period card (period 2+) to re-optimize from that point forward. Useful after manual swaps to restore fairness across remaining periods. Warns if goal data exists in periods that will be regenerated.
+- **Add period** -- tap `[+ Add Quarter/Half/Period]` at the bottom of the lineup to extend the game. All existing periods stay frozen; the new period is generated fairly against that history. Useful for overtime, extra drills, or mid-game format changes.
+- **Remove period** -- tap the trash icon on any period card. A modal offers four options: *Rebalance All* (regenerates every remaining period), *Rebalance After* (freezes earlier periods, regenerates the tail), *Remove Only* (deletes the period with no regeneration — "we planned too many"), or *Cancel*. Each option shows inline which goals will be cleared. Cannot remove below 1 period.
 
 ### Multiple Games Per Day
 
@@ -96,16 +98,16 @@ Each team/season combination has its own roster, game history, and season stats 
 
 ## Period Formats
 
-The Game Day format selector supports:
+The Game Day format stepper accepts any integer from 1 to 999. The label auto-derives based on count:
 
-| Format | Label | Use |
-|--------|-------|-----|
-| 4 Quarters | Q1, Q2, Q3, Q4 | Soccer, basketball, football |
-| 3 Periods | P1, P2, P3 | Hockey, lacrosse |
-| 2 Halves | H1, H2 | Soccer (older ages), any sport |
-| 1 Game | Game 1 | Single-segment games, scrimmages |
+| Count | Label | Typical use |
+|-------|-------|-------------|
+| 1 | Game | Single-segment games, scrimmages |
+| 2 | Halves (H1, H2) | Soccer (older ages), any sport |
+| 4 | Quarters (Q1..Q4) | Soccer, basketball, football |
+| 3, 5, 6, 7+ | Periods (P1..Pn) | Hockey, lacrosse, innings, custom drills |
 
-The engine works with any period count. Labels adapt throughout the app (lineup cards, share text, field tab pills, season history).
+The engine works with any period count. Labels adapt throughout the app (lineup cards, share text, field tab pills, season history). Periods can also be added or removed mid-game from the Lineup tab (see In-Game Features).
 
 ## Backup & Sharing
 
@@ -124,7 +126,7 @@ All data lives on your device. Use the **⋮** menu in the header:
 Tap **⋮ → Settings** to customize the app:
 
 - **Theme** -- Dark, Light, or System (follows your phone's setting)
-- **Game Structure** -- default sport, field format, game format (4 Quarters / 3 Periods / 2 Halves / 1 Game), segment length (MM:SS), starter mode, position stickiness, max segments per player
+- **Game Structure** -- default sport, field format, game format (stepper: any count from 1 to 999; seeds new games only), segment length (MM:SS), starter mode, position stickiness, max segments per player
 - **Tracking & Clock** -- timing precision (Approx / Exact), clock direction (↓ Down / ↑ Up)
 - **Hints** -- show or dismiss all first-use tip banners
 

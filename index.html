@@ -52,13 +52,9 @@
           <input type="date" id="gameDate">
         </div>
         <div>
-          <label for="gamePeriods">Game format</label>
-          <select id="gamePeriods">
-            <option value="4">4 Quarters</option>
-            <option value="3">3 Periods</option>
-            <option value="2">2 Halves</option>
-            <option value="1">1 Game</option>
-          </select>
+          <label>Game format</label>
+          <input type="hidden" id="gamePeriods" value="4">
+          <div id="gamePeriodsStepper"></div>
         </div>
       </div>
       <div class="toggle-row">

@@ -466,6 +466,58 @@ function getPeriodLabel(n, short) {
   return short ? 'P' : 'Period';
 }
 
+/**
+ * Render a reusable stepper widget as HTML.
+ *   opts.minusFn / plusFn — JS expression strings for onclick (e.g., "bumpFoo(-1)")
+ *   opts.label — center display text
+ *   opts.minusDisabled / plusDisabled — booleans
+ *   opts.id — optional id prefix for the label span (so it can be updated without full rerender)
+ */
+function renderStepperHtml(opts) {
+  const minusAttr = opts.minusDisabled ? ' disabled' : '';
+  const plusAttr = opts.plusDisabled ? ' disabled' : '';
+  const labelId = opts.id ? ` id="${opts.id}"` : '';
+  return `<div class="stepper">
+    <button class="stepper-btn" type="button" onclick="${opts.minusFn}" aria-label="Decrease"${minusAttr}>&minus;</button>
+    <span class="stepper-label"${labelId}>${opts.label}</span>
+    <button class="stepper-btn" type="button" onclick="${opts.plusFn}" aria-label="Increase"${plusAttr}>+</button>
+  </div>`;
+}
+
+/** Format a period count as "4 Quarters", "2 Halves", "6 Periods", "1 Game" */
+function formatPeriodCount(n) {
+  const plural = getPeriodLabelPlural(n);
+  const cap = plural.charAt(0).toUpperCase() + plural.slice(1);
+  return `${n} ${cap}`;
+}
+
+function renderGamePeriodsStepper() {
+  const el = document.getElementById('gamePeriodsStepper');
+  if (!el) return;
+  const hidden = document.getElementById('gamePeriods');
+  const val = parseInt(hidden?.value) || 4;
+  el.innerHTML = renderStepperHtml({
+    minusFn: 'bumpGamePeriods(-1)',
+    plusFn: 'bumpGamePeriods(1)',
+    label: formatPeriodCount(val),
+    minusDisabled: val <= 1,
+    plusDisabled: val >= 999,
+  });
+}
+
+function bumpGamePeriods(delta) {
+  const hidden = document.getElementById('gamePeriods');
+  if (!hidden) return;
+  let val = parseInt(hidden.value) || 4;
+  val = Math.max(1, Math.min(999,val + delta));
+  hidden.value = String(val);
+  renderGamePeriodsStepper();
+  // Refresh constraint controls since they depend on numPeriods
+  if (document.getElementById('constraintControls')) {
+    renderConstraintControls();
+  }
+}
+
 /** Plural lowercase: "quarters", "halves", "periods" */
 function getPeriodLabelPlural(n) {
   if (n === 1) return 'game';
@@ -701,6 +753,7 @@ function loadContextData() {
   // Apply settings defaults
   const settings = loadSettings();
   document.getElementById('gamePeriods').value = String(settings.defaultPeriods);
+  renderGamePeriodsStepper();
   starterMode = settings.defaultStarterMode;
   document.getElementById('toggleStarters').classList.toggle('on', starterMode);
   gameContinuity = settings.defaultContinuity || 0;
@@ -1830,33 +1883,37 @@ function renderConstraintControls() {
   html += '</div>';
   html += '</div>';
 
-  // Global max periods per player
+  // Global max periods per player — stepper with "Any" sentinel
+  const gmLabel = gameGlobalMaxPeriods === null ? 'Any' : String(gameGlobalMaxPeriods);
+  const gmMinusDisabled = gameGlobalMaxPeriods === null;
+  const gmPlusDisabled = gameGlobalMaxPeriods !== null && gameGlobalMaxPeriods >= numPeriods - 1;
   html += '<div class="constraint-row">';
   html += '<div class="constraint-label">Max periods / player<div class="constraint-sublabel">Limit total periods any player plays this game</div></div>';
-  html += '<div class="tri-toggle">';
-  const noLimitActive = gameGlobalMaxPeriods === null ? ' active' : '';
-  html += `<button class="tri-opt${noLimitActive}" onclick="setGlobalMaxPeriods(null)">Any</button>`;
-  for (let v = 1; v < numPeriods; v++) {
-    const active = gameGlobalMaxPeriods === v ? ' active' : '';
-    html += `<button class="tri-opt${active}" onclick="setGlobalMaxPeriods(${v})">${v}</button>`;
-  }
-  html += '</div>';
+  html += renderStepperHtml({
+    minusFn: 'bumpGlobalMaxPeriods(-1)',
+    plusFn: 'bumpGlobalMaxPeriods(1)',
+    label: gmLabel,
+    minusDisabled: gmMinusDisabled,
+    plusDisabled: gmPlusDisabled,
+  });
   html += '</div>';
 
-  // Per-position max
+  // Per-position max — stepper per position
   html += `<div class="constraint-section-label">Max per position<span class="constraint-sublabel" style="display:block">Limit how many ${periodLabel} one player plays a position</span></div>`;
   for (const pos of roster.positions) {
     const curMax = gamePositionMax[pos] ?? null;
+    const pmLabel = curMax === null ? 'Any' : String(curMax);
+    const pmMinusDisabled = curMax === null;
+    const pmPlusDisabled = curMax !== null && curMax >= numPeriods - 1;
     html += '<div class="constraint-row">';
     html += `<span class="constraint-pos-label">${pos}</span>`;
-    html += '<div class="tri-toggle">';
-    const anyActive = curMax === null ? ' active' : '';
-    html += `<button class="tri-opt${anyActive}" onclick="setPositionMax('${pos}',null)">Any</button>`;
-    for (let v = 1; v < numPeriods; v++) {
-      const active = curMax === v ? ' active' : '';
-      html += `<button class="tri-opt${active}" onclick="setPositionMax('${pos}',${v})">${v}</button>`;
-    }
-    html += '</div>';
+    html += renderStepperHtml({
+      minusFn: `bumpPositionMax('${pos}',-1)`,
+      plusFn: `bumpPositionMax('${pos}',1)`,
+      label: pmLabel,
+      minusDisabled: pmMinusDisabled,
+      plusDisabled: pmPlusDisabled,
+    });
     html += '</div>';
   }
 
@@ -1881,12 +1938,45 @@ function setGlobalMaxPeriods(val) {
   renderConstraintControls();
 }
 
+function bumpGlobalMaxPeriods(delta) {
+  const numPeriods = parseInt(document.getElementById('gamePeriods')?.value) || 4;
+  const maxVal = numPeriods - 1;
+  const cur = gameGlobalMaxPeriods;
+  let next;
+  if (cur === null) {
+    next = delta > 0 ? 1 : null;
+  } else {
+    next = cur + delta;
+    if (next < 1) next = null;
+    else if (next > maxVal) next = maxVal;
+  }
+  gameGlobalMaxPeriods = next;
+  renderConstraintControls();
+}
+
 function setPositionMax(pos, val) {
   if (val === null) {
     delete gamePositionMax[pos];
   } else {
     gamePositionMax[pos] = val;
   }
+  renderConstraintControls();
+}
+
+function bumpPositionMax(pos, delta) {
+  const numPeriods = parseInt(document.getElementById('gamePeriods')?.value) || 4;
+  const maxVal = numPeriods - 1;
+  const cur = gamePositionMax[pos] ?? null;
+  let next;
+  if (cur === null) {
+    next = delta > 0 ? 1 : null;
+  } else {
+    next = cur + delta;
+    if (next < 1) next = null;
+    else if (next > maxVal) next = maxVal;
+  }
+  if (next === null) delete gamePositionMax[pos];
+  else gamePositionMax[pos] = next;
   renderConstraintControls();
 }
 
@@ -2278,7 +2368,11 @@ function renderLineup() {
     const collapseClass = isCollapsed ? ' collapsed' : '';
     const chevron = `<span class="period-chevron${isCollapsed ? ' collapsed' : ''}">&#x25BE;</span>`;
     const periodScoreHtml = `<span class="period-score"><span class="period-team-goals">${pUs}</span> <span class="period-score-sep">\u2014</span> Opp <span class="opp-counter"><button class="opp-btn" onclick="event.stopPropagation();changeOppGoals(${pi},-1)" aria-label="Decrement opponent">&minus;</button><span>${pThem}</span><button class="opp-btn" onclick="event.stopPropagation();changeOppGoals(${pi},1)" aria-label="Increment opponent">+</button></span></span>`;
-    html += `<div class="period-card${collapseClass}"><div class="period-header" onclick="togglePeriodCollapse(${pi})"><span>${chevron}${periodLabel} ${pa.period}</span>${pi > 0 ? `<button class="rebalance-btn" onclick="event.stopPropagation();openRebalanceModal(${pi})" title="Rebalance from here" aria-label="Rebalance from ${periodLabel} ${pa.period}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>` : ''}${periodScoreHtml}</div>`;
+    const canRemove = plan.numPeriods > 1;
+    const removeBtnHtml = canRemove
+      ? `<button class="period-remove-btn" onclick="event.stopPropagation();openRemovePeriodModal(${pi})" title="Remove ${periodLabel} ${pa.period}" aria-label="Remove ${periodLabel} ${pa.period}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>`
+      : '';
+    html += `<div class="period-card${collapseClass}"><div class="period-header" onclick="togglePeriodCollapse(${pi})"><span>${chevron}${periodLabel} ${pa.period}</span>${pi > 0 ? `<button class="rebalance-btn" onclick="event.stopPropagation();openRebalanceModal(${pi})" title="Rebalance from here" aria-label="Rebalance from ${periodLabel} ${pa.period}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>` : ''}${removeBtnHtml}${periodScoreHtml}</div>`;
     if (!isCollapsed) {
       html += '<div class="period-body">';
       for (const pos of roster.positions) {
@@ -2364,6 +2458,10 @@ function renderLineup() {
     html += '</div>';
   }
 
+  // Add-period button (appears after last period card, before summary)
+  const nextLabel = getPeriodLabel(plan.numPeriods + 1);
+  html += `<button class="add-period-btn" onclick="addPeriodToPlan()">+ Add ${nextLabel}</button>`;
+
   html += '<div class="card"><div class="card-title">Player Summary</div>';
   html += '<table class="season-table"><thead><tr><th>Player</th><th>Played</th><th>Positions</th></tr></thead><tbody>';
   for (const pid of plan.availablePlayers) {
@@ -2372,6 +2470,57 @@ function renderLineup() {
   }
   html += '</tbody></table></div>';
   el.innerHTML = html;
+}
+
+function addPeriodToPlan() {
+  if (!currentPlan || !ctx || !roster) return;
+  const oldNumPeriods = currentPlan.numPeriods;
+
+  const allPids = currentPlan.availablePlayers;
+  const locks = Object.entries(gameLocks)
+    .filter(([pid]) => allPids.includes(pid))
+    .map(([pid, position]) => ({ pid, position }));
+  const constraints = {
+    locks,
+    continuity: gameContinuity,
+    positionMax: gamePositionMax,
+    globalMaxPeriods: gameGlobalMaxPeriods,
+  };
+
+  const stats = Storage.getSeasonStats(ctx.teamSlug, ctx.seasonSlug);
+  const engine = new RotationEngine(roster, stats);
+
+  try {
+    currentPlan.numPeriods = oldNumPeriods + 1;
+    const rebalanced = engine.rebalanceFromPeriod(
+      currentPlan, oldNumPeriods, [], constraints, []
+    );
+    rebalanced.periodAssignments = rebalanced.periodAssignments.map(pa => ({
+      ...pa,
+      assignments: wrapEngineOutput(pa.assignments),
+    }));
+    rebalanced.gameId = currentPlan.gameId;
+    rebalanced.notes = currentPlan.notes || '';
+    rebalanced.label = currentPlan.label || '';
+    rebalanced.score = currentPlan.score || {};
+    if (currentPlan.exhibition) rebalanced.exhibition = true;
+
+    currentPlan = rebalanced;
+    Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+    swapSelection = null;
+    swapHighlight = null;
+    renderLineup();
+    renderSeason();
+    showToast(`${getPeriodLabel(currentPlan.numPeriods)} ${currentPlan.numPeriods} added`, 'success');
+  } catch (e) {
+    currentPlan.numPeriods = oldNumPeriods;
+    showModal({
+      title: 'Cannot Add Period',
+      message: e.message,
+      cancelLabel: null,
+      onConfirm: () => {}
+    });
+  }
 }
 
 function deleteCurrentGame() {
@@ -2565,6 +2714,163 @@ function openRebalanceModal(fromPeriodIdx) {
     confirmLabel: 'Rebalance',
     onConfirm: () => doRebalance(fromPeriodIdx, [])
   });
+}
+
+function openRemovePeriodModal(periodIdx) {
+  if (!currentPlan || !ctx || !roster) return;
+  if (currentPlan.numPeriods <= 1) return;
+
+  const plan = currentPlan;
+  const periodLabel = getPeriodLabel(plan.numPeriods);
+  const targetLabel = `${periodLabel} ${periodIdx + 1}`;
+
+  // Check goal data impact: removed period, plus regenerated tail if Rebalance chosen
+  const periodHasGoals = (i) => {
+    const pa = plan.periodAssignments[i];
+    if (!pa || !plan.score) return false;
+    if ((plan.score.oppGoals?.[i] || 0) > 0) return true;
+    for (const pid of extractPidsFromAssignments(pa.assignments)) {
+      if ((plan.score.playerGoals?.[pid]?.[i] || 0) > 0) return true;
+    }
+    return false;
+  };
+
+  let removedHasGoals = periodHasGoals(periodIdx);
+  let tailHasGoals = false;
+  for (let i = periodIdx + 1; i < plan.numPeriods; i++) {
+    if (periodHasGoals(i)) { tailHasGoals = true; break; }
+  }
+
+  closeCustomModal();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'customModal';
+
+  // Any goals anywhere in the game (for "Rebalance All" warning)
+  let anyHasGoals = false;
+  for (let i = 0; i < plan.numPeriods; i++) {
+    if (periodHasGoals(i)) { anyHasGoals = true; break; }
+  }
+
+  let msg = `Remove ${targetLabel}?`;
+  if (removedHasGoals) msg += `\n\nGoals recorded in ${targetLabel} will be cleared.`;
+
+  overlay.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true">
+      <h2>Remove ${esc(targetLabel)}</h2>
+      <div class="modal-message">${esc(msg)}</div>
+      <div class="modal-actions" style="flex-direction:column;align-items:stretch">
+        <button class="btn btn-primary" id="removeRebalanceAllBtn">Remove &amp; Rebalance All${anyHasGoals ? ' (clears all goals)' : ''}</button>
+        <button class="btn btn-primary" id="removeRebalanceAfterBtn"${periodIdx >= plan.numPeriods - 1 ? ' disabled' : ''}>Remove &amp; Rebalance After${tailHasGoals ? ' (clears later goals)' : ''}</button>
+        <button class="btn btn-outline" id="removeOnlyBtn">Remove Only</button>
+        <button class="btn btn-outline" id="removeCancelBtn">Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('removeRebalanceAllBtn').addEventListener('click', () => {
+    closeCustomModal();
+    doRemovePeriod(periodIdx, 'all');
+  });
+  document.getElementById('removeRebalanceAfterBtn').addEventListener('click', () => {
+    closeCustomModal();
+    doRemovePeriod(periodIdx, 'after');
+  });
+  document.getElementById('removeOnlyBtn').addEventListener('click', () => {
+    closeCustomModal();
+    doRemovePeriod(periodIdx, 'none');
+  });
+  document.getElementById('removeCancelBtn').addEventListener('click', closeCustomModal);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeCustomModal();
+  });
+}
+
+function doRemovePeriod(periodIdx, mode /* 'all' | 'after' | 'none' */) {
+  if (!currentPlan || !ctx || !roster) return;
+  if (currentPlan.numPeriods <= 1) return;
+
+  const plan = currentPlan;
+
+  // Clear goal data for the removed period, and also shift later-period goal data down
+  if (plan.score) {
+    const shiftMap = (map) => {
+      if (!map) return;
+      delete map[periodIdx];
+      const keys = Object.keys(map).map(Number).filter(k => k > periodIdx).sort((a, b) => a - b);
+      for (const k of keys) {
+        map[k - 1] = map[k];
+        delete map[k];
+      }
+    };
+    shiftMap(plan.score.oppGoals);
+    if (plan.score.playerGoals) {
+      for (const pid of Object.keys(plan.score.playerGoals)) {
+        shiftMap(plan.score.playerGoals[pid]);
+      }
+    }
+  }
+
+  // Splice out the period and renumber
+  plan.periodAssignments.splice(periodIdx, 1);
+  plan.numPeriods -= 1;
+  for (let i = 0; i < plan.periodAssignments.length; i++) {
+    plan.periodAssignments[i].period = i + 1;
+  }
+
+  const rebalanceFrom = mode === 'all' ? 0 : (mode === 'after' ? periodIdx : -1);
+  if (rebalanceFrom >= 0 && rebalanceFrom < plan.numPeriods) {
+    // Clear goals for periods that will be regenerated
+    if (plan.score) {
+      for (let i = rebalanceFrom; i < plan.numPeriods; i++) {
+        if (plan.score.oppGoals) delete plan.score.oppGoals[i];
+        if (plan.score.playerGoals) {
+          for (const pid of Object.keys(plan.score.playerGoals)) {
+            delete plan.score.playerGoals[pid][i];
+          }
+        }
+      }
+    }
+
+    const allPids = plan.availablePlayers;
+    const locks = Object.entries(gameLocks)
+      .filter(([pid]) => allPids.includes(pid))
+      .map(([pid, position]) => ({ pid, position }));
+    const constraints = {
+      locks,
+      continuity: gameContinuity,
+      positionMax: gamePositionMax,
+      globalMaxPeriods: gameGlobalMaxPeriods,
+    };
+
+    const stats = Storage.getSeasonStats(ctx.teamSlug, ctx.seasonSlug);
+    const engine = new RotationEngine(roster, stats);
+
+    try {
+      const rebalanced = engine.rebalanceFromPeriod(plan, rebalanceFrom, [], constraints, []);
+      rebalanced.periodAssignments = rebalanced.periodAssignments.map(pa => ({
+        ...pa,
+        assignments: wrapEngineOutput(pa.assignments),
+      }));
+      rebalanced.gameId = plan.gameId;
+      rebalanced.notes = plan.notes || '';
+      rebalanced.label = plan.label || '';
+      rebalanced.score = plan.score || {};
+      if (plan.exhibition) rebalanced.exhibition = true;
+      currentPlan = rebalanced;
+    } catch (e) {
+      showModal({ title: 'Rebalance Error', message: e.message, cancelLabel: null, onConfirm: () => {} });
+      return;
+    }
+  }
+
+  Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+  swapSelection = null;
+  swapHighlight = null;
+  renderLineup();
+  renderSeason();
+  showToast('Period removed', 'success');
 }
 
 function doRebalance(fromPeriodIdx, newPids = [], removedPids = []) {
@@ -4684,12 +4990,14 @@ function openSettings() {
         </div>
         <div class="settings-row">
           <span class="settings-label">Game format</span>
-          <select id="settingsDefaultPeriods" onchange="setDefaultPeriods(this.value)">
-            <option value="4"${settings.defaultPeriods === 4 ? ' selected' : ''}>4 Quarters</option>
-            <option value="3"${settings.defaultPeriods === 3 ? ' selected' : ''}>3 Periods</option>
-            <option value="2"${settings.defaultPeriods === 2 ? ' selected' : ''}>2 Halves</option>
-            <option value="1"${settings.defaultPeriods === 1 ? ' selected' : ''}>1 Game</option>
-          </select>
+          ${renderStepperHtml({
+            minusFn: 'bumpSettingsDefaultPeriods(-1)',
+            plusFn: 'bumpSettingsDefaultPeriods(1)',
+            label: formatPeriodCount(settings.defaultPeriods),
+            id: 'settingsDefaultPeriodsLabel',
+            minusDisabled: settings.defaultPeriods <= 1,
+            plusDisabled: settings.defaultPeriods >= 999,
+          })}
         </div>
         <div class="settings-row">
           <span class="settings-label">Segment length</span>
@@ -4807,6 +5115,23 @@ function applyColorblind(enabled) {
     html.classList.add('colorblind');
   } else {
     html.classList.remove('colorblind');
+  }
+}
+
+function bumpSettingsDefaultPeriods(delta) {
+  const settings = loadSettings();
+  const cur = settings.defaultPeriods || 4;
+  const next = Math.max(1, Math.min(999,cur + delta));
+  if (next === cur) return;
+  setDefaultPeriods(next);
+  // Update the stepper label + disabled states in-place
+  const labelEl = document.getElementById('settingsDefaultPeriodsLabel');
+  if (labelEl) labelEl.textContent = formatPeriodCount(next);
+  const wrap = labelEl?.parentElement;
+  if (wrap) {
+    const [minusBtn, , plusBtn] = wrap.children;
+    if (minusBtn) minusBtn.disabled = next <= 1;
+    if (plusBtn) plusBtn.disabled = next >= 999;
   }
 }
 

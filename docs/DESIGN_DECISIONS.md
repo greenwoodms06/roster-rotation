@@ -741,6 +741,32 @@ With spacing, rest distributes naturally:
 - Public API of `generateGamePlan` — no new parameters (spacing is always-on, invisible to the coach)
 - Jitter (`Math.random() * 0.01`) — only in `_buildCostMatrix` (Phase 3), does not affect period scheduling
 
+## Arbitrary Segment Count
+
+The app supports any period count from 1 to 999. Three architectural pieces make this work:
+
+### Reusable stepper widget
+
+`renderStepperHtml({minusFn, plusFn, label, minusDisabled, plusDisabled, id})` (app.js) returns a `.stepper` HTML block — two `<button>`s around a center label span. Used for: Game Day game format, Settings default game format, constraint caps (Max periods/player, Max per position). Inline `onclick` strings are passed rather than closures to match the rest of the app's HTML-first wiring.
+
+### Game Day integration without rewriting readers
+
+The `<select id="gamePeriods">` was replaced with a **hidden input** of the same id plus a stepper container. `bumpGamePeriods(delta)` updates the hidden input and re-renders both the stepper label and `renderConstraintControls()` (which depends on `numPeriods`). All existing reads (`document.getElementById('gamePeriods').value`) continue to work unchanged — `generatePlan()`, `renderConstraintControls()`, etc. need no edits.
+
+### Constraint caps with "Any" sentinel
+
+The original tri-toggle ("Any / 1 / 2 / 3" buttons) overflowed the row horizontally at 6+ periods. The replacement stepper treats `null` as "Any" and integer 1..N−1 as explicit caps. Stepping down from 1 → Any; stepping up from Any → 1. `bumpGlobalMaxPeriods` and `bumpPositionMax` share the same pattern.
+
+### Add / remove period mid-game
+
+- **Add:** `addPeriodToPlan()` increments `currentPlan.numPeriods` then calls `engine.rebalanceFromPeriod(plan, oldNumPeriods)`. Since `rebalanceFromPeriod` keys off `plan.numPeriods` and freezes everything before `fromPeriodIdx`, this cleanly generates exactly one new period using all prior periods as frozen history. No engine changes.
+- **Remove:** `doRemovePeriod(idx, mode)` splices the period, decrements `numPeriods`, renumbers `pa.period` to stay 1-based, and shifts goal-data maps (`score.oppGoals[i]`, `score.playerGoals[pid][i]`) down by 1 for indices past the removal point. Then, depending on `mode`:
+  - `'all'` — `rebalanceFromPeriod(plan, 0)` (regenerate everything, freeze nothing)
+  - `'after'` — `rebalanceFromPeriod(plan, idx)` (freeze earlier, regenerate tail)
+  - `'none'` — no engine call; assignments stay as-is
+
+The 4-option modal (Rebalance All / Rebalance After / Remove Only / Cancel) inlines per-option goal-clearing warnings so the coach sees the cost before tapping. "Rebalance After" disables when removing the last period.
+
 ## Position Input Sanitization
 
 `sanitizePositions(rawStr)` normalizes the positions text field on blur and as a safety net inside `saveSeason()`. Rules:
