@@ -1,10 +1,11 @@
 /**
  * field.js -- Field tab rendering, SVG field backgrounds, and drag handling
- * Requires: formations.js (FORMATIONS, POSITION_PRESETS, SPORT_ICONS, generateAutoLayout,
- *                          getSeasonPreset, matchPresetFromPositions)
+ * Requires: formations.js (SPORTS, getPositionsForCount, getFormationsForCount,
+ *                          getFieldBg, getSeasonSport, findSportAndCount, generateAutoLayout)
  *           storage.js (Storage)
  *           app.js globals (ctx, roster, currentPlan, fieldPeriodIdx, fieldFormationIdx,
- *                          fieldDotPositions, fieldDragState, esc)
+ *                          fieldDotPositions, fieldDragState, esc,
+ *                          fieldStandaloneSport, fieldStandaloneCount)
  */
 
 // -- Field Tab State --------------------------------------------------
@@ -12,20 +13,32 @@
 
 /** Returns positions for standalone mode — generates P1..Pn for custom sport. */
 function getStandalonePositions() {
-  if (fieldStandalonePreset === 'custom') {
+  if (fieldStandaloneSport === 'custom') {
     return Array.from({ length: fieldCustomCount }, (_, i) => `P${i + 1}`);
   }
-  return POSITION_PRESETS[fieldStandalonePreset] || [];
+  return getPositionsForCount(fieldStandaloneSport, fieldStandaloneCount);
 }
 
 function getFieldFormations() {
-  const preset = (ctx && roster) ? getSeasonPreset() : fieldStandalonePreset;
-  const info = preset ? FORMATIONS[preset] : null;
-  if (info) return info;
-  const positions = roster
-    ? roster.positions
-    : getStandalonePositions();
-  const fieldType = (fieldStandalonePreset === 'custom') ? fieldCustomFieldType : 'generic';
+  let sportKey, n;
+  if (ctx && roster) {
+    const info = getSeasonSport();
+    sportKey = info?.sport;
+    n = info?.n ?? roster.positions.length;
+  } else {
+    sportKey = fieldStandaloneSport;
+    n = fieldStandaloneCount;
+  }
+
+  const formations = sportKey ? getFormationsForCount(sportKey, n) : [];
+  if (formations.length > 0) {
+    return { fieldType: getFieldBg(sportKey), layouts: formations };
+  }
+
+  const positions = roster ? roster.positions : getStandalonePositions();
+  const fieldType = (fieldStandaloneSport === 'custom' && !ctx)
+    ? fieldCustomFieldType
+    : (sportKey ? getFieldBg(sportKey) : 'generic');
   return {
     fieldType,
     layouts: [{ name: 'Auto', coords: generateAutoLayout(positions) }]
@@ -39,24 +52,21 @@ function getPlaysCtx() {
 
 /** Sport/format selector rendered only in standalone (no team) mode. */
 function buildStandaloneSportSelectorHTML() {
-  const parsed = parsePresetKey(fieldStandalonePreset);
-  const currentSportKey = parsed.sport;
-  const currentFormatKey = parsed.format;
-  const currentSport = SPORTS[currentSportKey];
+  const currentSport = SPORTS[fieldStandaloneSport];
 
   let html = '<div class="standalone-sport-row">';
 
   // Sport dropdown
   html += '<select id="standaloneSportSelect" onchange="changeStandaloneSport(this.value)">';
   for (const [sportKey, sport] of Object.entries(SPORTS)) {
-    if (sport.formats.length === 0) continue;
-    const sel = sportKey === currentSportKey ? ' selected' : '';
+    const sel = sportKey === fieldStandaloneSport ? ' selected' : '';
     html += `<option value="${sportKey}"${sel}>${sport.icon} ${sport.name}</option>`;
   }
   html += '</select>';
 
-  // Format dropdown (or field type selector for custom)
-  if (currentSportKey === 'custom') {
+  // Right-side selector varies by sport
+  if (fieldStandaloneSport === 'custom') {
+    // Field-background selector
     const fieldTypes = [
       { key: 'generic', label: 'Generic' },
       { key: 'soccer', label: '\u26BD Soccer' },
@@ -73,12 +83,15 @@ function buildStandaloneSportSelectorHTML() {
     }
     html += '</select>';
   } else if (currentSport) {
-    html += '<select id="standaloneFormatSelect" onchange="changeStandaloneFormat(this.value)">';
-    for (const fmt of currentSport.formats) {
-      const sel = fmt.key === currentFormatKey ? ' selected' : '';
-      html += `<option value="${fmt.key}"${sel}>${fmt.name}</option>`;
-    }
-    html += '</select>';
+    // Player-count stepper (replaces format dropdown)
+    const n = fieldStandaloneCount;
+    html += renderStepperHtml({
+      minusFn: 'bumpStandaloneCount(-1)',
+      plusFn: 'bumpStandaloneCount(1)',
+      label: `${n}v${n}`,
+      minusDisabled: n <= SEASON_COUNT_MIN,
+      plusDisabled: n >= SEASON_COUNT_MAX,
+    });
   }
 
   html += '</div>';
@@ -87,20 +100,23 @@ function buildStandaloneSportSelectorHTML() {
 
 function changeStandaloneSport(sportKey) {
   const sport = SPORTS[sportKey];
-  if (!sport || sport.formats.length === 0) return;
-  const firstFormat = sport.formats[0];
-  const presetKey = makePresetKey(sportKey, firstFormat.key);
-  changeStandalonePreset(presetKey);
+  if (!sport) return;
+  fieldStandaloneSport = sportKey;
+  fieldStandaloneCount = sport.defaultN;
+  resetStandaloneFieldState();
+  renderField();
 }
 
-function changeStandaloneFormat(formatKey) {
-  const parsed = parsePresetKey(fieldStandalonePreset);
-  const presetKey = makePresetKey(parsed.sport, formatKey);
-  changeStandalonePreset(presetKey);
+function bumpStandaloneCount(delta) {
+  const next = Math.max(SEASON_COUNT_MIN, Math.min(SEASON_COUNT_MAX, fieldStandaloneCount + delta));
+  if (next === fieldStandaloneCount) return;
+  fieldStandaloneCount = next;
+  fieldDotPositions = {};
+  fieldFormationIdx = 0;
+  renderField();
 }
 
-function changeStandalonePreset(presetKey) {
-  fieldStandalonePreset = presetKey;
+function resetStandaloneFieldState() {
   fieldFormationIdx = 0;
   fieldDotPositions = {};
   fieldRoutes = [];
@@ -113,7 +129,6 @@ function changeStandalonePreset(presetKey) {
   fieldSelectedZone = null;
   fieldCustomFieldType = 'generic';
   fieldPlays = Storage.loadPlays('__standalone__', '__standalone__');
-  renderField();
 }
 
 function changeCustomFieldType(fieldType) {
@@ -139,13 +154,13 @@ function renderField() {
   const el = document.getElementById('fieldContent');
   if (!el) return;
 
-  if (typeof FORMATIONS === 'undefined') {
+  if (typeof SPORTS === 'undefined') {
     el.innerHTML = '<div class="empty-state"><p style="color:var(--warn)">Update needed -- close the app completely and reopen it to refresh.</p></div>';
     return;
   }
 
   const isStandalone = !ctx || !roster;
-  const isCustomStandalone = isStandalone && fieldStandalonePreset === 'custom';
+  const isCustomStandalone = isStandalone && fieldStandaloneSport === 'custom';
   const formInfo = getFieldFormations();
   const layouts = formInfo.layouts;
   if (layouts.length === 0) {

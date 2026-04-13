@@ -260,7 +260,9 @@ const Storage = {
     return {
       slug: season.slug,
       name: season.name,
-      preset: season.preset || null,
+      sport: season.sport || null,
+      playerCount: season.playerCount || null,
+      preset: season.preset || null,  // legacy compat
       positions: season.positions || [],
       roster: this.loadRoster(teamSlug, season.slug) || { players: {}, positions: season.positions || [] },
       games: this.loadAllGames(teamSlug, season.slug),
@@ -352,7 +354,9 @@ const Storage = {
       this.addSeason(teamData.slug, {
         slug: seasonData.slug,
         name: seasonData.name,
-        preset: seasonData.preset || null,
+        sport: seasonData.sport || null,
+        playerCount: seasonData.playerCount || null,
+        preset: seasonData.preset || null,  // legacy compat
         positions: seasonData.positions || [],
       });
 

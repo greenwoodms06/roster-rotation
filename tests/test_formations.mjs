@@ -1,4 +1,4 @@
-// tests/test_formations.mjs — SPORTS, presets, formations, preset matching
+// tests/test_formations.mjs — SPORTS, positions, formations, legacy compat
 import { suite, assert, assertEqual, createContext, run } from './helpers.mjs';
 
 const ctx = createContext();
@@ -14,153 +14,135 @@ suite('SPORTS — structure');
   assert(sportKeys.includes('lacrosse'), 'has lacrosse');
   assert(sportKeys.includes('custom'), 'has custom');
 
-  // Every sport has name, icon, formats array
   for (const key of sportKeys) {
     const sport = run(ctx, `SPORTS['${key}']`);
     assert(sport.name, `${key} has name`);
     assert(sport.icon, `${key} has icon`);
-    assert(Array.isArray(sport.formats), `${key} has formats array`);
-    assert(sport.formats.length >= 1, `${key} has at least 1 format`);
-
-    // Each format has key, name, positions
-    for (const fmt of sport.formats) {
-      assert(fmt.name, `${key}/${fmt.key} has name`);
-      assert(Array.isArray(fmt.positions), `${key}/${fmt.key} has positions array`);
-    }
+    assert(sport.fieldBg, `${key} has fieldBg`);
+    assert(typeof sport.defaultN === 'number', `${key} has numeric defaultN`);
+    assert(typeof sport.hasSpecialFirst === 'boolean', `${key} has hasSpecialFirst flag`);
+    assert(Array.isArray(sport.positionPool), `${key} has positionPool array`);
+    assert(typeof sport.byCount === 'object', `${key} has byCount object`);
   }
 }
 
-suite('SPORTS — soccer formats');
+suite('SPORTS — soccer byCount');
 {
-  const fmts = run(ctx, `SPORTS.soccer.formats.map(f => f.key)`);
-  assert(fmts.includes('5v5'), 'soccer has 5v5');
-  assert(fmts.includes('7v7'), 'soccer has 7v7');
-  assert(fmts.includes('9v9'), 'soccer has 9v9');
-  assert(fmts.includes('11v11'), 'soccer has 11v11');
+  const soccerCounts = run(ctx, 'Object.keys(SPORTS.soccer.byCount).map(Number).sort((a,b)=>a-b)');
+  assertEqual(soccerCounts, [5, 7, 9, 11], 'soccer has byCount 5, 7, 9, 11');
 
-  const pos5 = run(ctx, `SPORTS.soccer.formats.find(f=>f.key==='5v5').positions`);
-  assertEqual(pos5.length, 5, 'soccer 5v5 has 5 positions');
-  assert(pos5.includes('GK'), 'soccer 5v5 has GK');
+  const pos7 = run(ctx, 'SPORTS.soccer.byCount[7].positions');
+  assertEqual(pos7.length, 7, 'soccer 7 has 7 positions');
+  assert(pos7.includes('GK'), 'soccer 7 has GK');
+
+  const formations7 = run(ctx, 'SPORTS.soccer.byCount[7].formations');
+  assert(formations7.length >= 2, 'soccer 7 has multiple formations');
 }
 
-suite('SPORTS — basketball formats');
+suite('SPORTS — basketball byCount');
 {
-  const fmts = run(ctx, `SPORTS.basketball.formats.map(f => f.key)`);
-  assert(fmts.includes('3v3'), 'basketball has 3v3');
+  const counts = run(ctx, 'Object.keys(SPORTS.basketball.byCount).map(Number).sort((a,b)=>a-b)');
+  assertEqual(counts, [3, 5], 'basketball has byCount 3, 5');
 
-  const pos3 = run(ctx, `SPORTS.basketball.formats.find(f=>f.key==='3v3').positions`);
-  assertEqual(pos3.length, 3, 'basketball 3v3 has 3 positions');
+  assertEqual(run(ctx, 'SPORTS.basketball.byCount[3].positions'), ['G', 'F', 'C'], 'basketball 3 positions');
 }
 
-suite('POSITION_PRESETS — derived correctly');
+suite('getPositionsForCount');
 {
-  const presetKeys = run(ctx, 'Object.keys(POSITION_PRESETS)');
-  assert(presetKeys.includes('soccer-5v5'), 'has soccer-5v5 preset');
-  assert(presetKeys.includes('soccer-7v7'), 'has soccer-7v7 preset');
-  assert(presetKeys.includes('basketball'), 'has basketball preset');
-  assert(presetKeys.includes('basketball-3v3'), 'has basketball-3v3 preset');
-  assert(presetKeys.includes('hockey'), 'has hockey preset');
-  assert(presetKeys.includes('custom'), 'has custom preset');
+  // Exact preset match
+  assertEqual(run(ctx, 'getPositionsForCount("soccer", 7)'), ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST'], 'soccer 7 = exact preset');
+  assertEqual(run(ctx, 'getPositionsForCount("basketball", 3)'), ['G', 'F', 'C'], 'basketball 3 = exact preset');
 
-  // Verify positions match SPORTS definitions
-  const soccer7 = run(ctx, 'POSITION_PRESETS["soccer-7v7"]');
-  assertEqual(soccer7.length, 7, 'soccer-7v7 has 7 positions');
+  // Intermediate value from pool
+  const soccer6 = run(ctx, 'getPositionsForCount("soccer", 6)');
+  assertEqual(soccer6.length, 6, 'soccer 6 returns 6 positions');
+  assertEqual(soccer6[0], 'GK', 'soccer 6 starts with GK (first in pool)');
 
-  const bball3 = run(ctx, 'POSITION_PRESETS["basketball-3v3"]');
-  assertEqual(bball3, ['G', 'F', 'C'], 'basketball-3v3 positions correct');
+  // Overflow past pool → generic P#
+  const custom20 = run(ctx, 'getPositionsForCount("custom", 3)');
+  assertEqual(custom20, ['P1', 'P2', 'P3'], 'custom 3 generates P1..P3');
+
+  // Past soccer pool → pool + P#
+  const soccer20 = run(ctx, 'getPositionsForCount("soccer", 15)');
+  assertEqual(soccer20.length, 15, 'soccer 15 returns 15 positions');
+  assertEqual(soccer20[14], 'P15', 'soccer 15 ends with P15 (pool + generic overflow)');
 }
 
-suite('SPORT_ICONS — derived correctly');
+suite('getFormationsForCount');
 {
-  const soccer7Icon = run(ctx, 'SPORT_ICONS["soccer-7v7"]');
-  assert(soccer7Icon === '⚽', 'soccer-7v7 icon is soccer ball');
+  const f7 = run(ctx, 'getFormationsForCount("soccer", 7)');
+  assert(f7.length >= 2, 'soccer 7 has multiple formations');
+  assert(f7[0].name, 'formations have names');
+  assert(f7[0].coords, 'formations have coords');
 
-  const bballIcon = run(ctx, 'SPORT_ICONS["basketball"]');
-  assert(bballIcon, 'basketball has icon');
+  const f6 = run(ctx, 'getFormationsForCount("soccer", 6)');
+  assertEqual(f6, [], 'soccer 6 has no preset formations (auto-layout fallback)');
+}
 
-  const bball3Icon = run(ctx, 'SPORT_ICONS["basketball-3v3"]');
-  assertEqual(bballIcon, bball3Icon, 'basketball 3v3 shares sport icon');
+suite('getFieldBg');
+{
+  assertEqual(run(ctx, 'getFieldBg("soccer")'), 'soccer', 'soccer → soccer bg');
+  assertEqual(run(ctx, 'getFieldBg("custom")'), 'generic', 'custom → generic bg');
+  assertEqual(run(ctx, 'getFieldBg("unknown")'), 'generic', 'unknown → generic bg');
+}
+
+suite('findSportAndCount');
+{
+  assertEqual(run(ctx, 'findSportAndCount(["GK","LB","RB","LW","CM","RW","ST"])'), { sport: 'soccer', n: 7 }, 'matches soccer 7');
+  assertEqual(run(ctx, 'findSportAndCount(["GK","LB","RB","CM","ST"])'), { sport: 'soccer', n: 5 }, 'matches soccer 5');
+  assertEqual(run(ctx, 'findSportAndCount(["G","F","C"])'), { sport: 'basketball', n: 3 }, 'matches basketball 3');
+  assertEqual(run(ctx, 'findSportAndCount(["PG","SG","SF","PF","C"])'), { sport: 'basketball', n: 5 }, 'matches basketball 5');
+  // Order independent
+  assertEqual(run(ctx, 'findSportAndCount(["ST","GK","CM","RB","LB"])'), { sport: 'soccer', n: 5 }, 'matches regardless of order');
+  assertEqual(run(ctx, 'findSportAndCount(["X","Y","Z"])'), null, 'returns null for unknown');
+}
+
+suite('parseLegacyPresetKey');
+{
+  assertEqual(run(ctx, 'parseLegacyPresetKey("soccer-7v7")'), { sport: 'soccer', n: 7 }, 'parses soccer-7v7');
+  assertEqual(run(ctx, 'parseLegacyPresetKey("soccer-11v11")'), { sport: 'soccer', n: 11 }, 'parses soccer-11v11');
+  assertEqual(run(ctx, 'parseLegacyPresetKey("basketball-3v3")'), { sport: 'basketball', n: 3 }, 'parses basketball-3v3');
+  assertEqual(run(ctx, 'parseLegacyPresetKey("hockey")'), { sport: 'hockey', n: 6 }, 'parses hockey (uses defaultN)');
+  assertEqual(run(ctx, 'parseLegacyPresetKey("baseball")'), { sport: 'baseball', n: 9 }, 'parses baseball (uses defaultN)');
+  assertEqual(run(ctx, 'parseLegacyPresetKey("custom")'), { sport: 'custom', n: 6 }, 'parses custom');
+  assertEqual(run(ctx, 'parseLegacyPresetKey("nonexistent")'), null, 'unknown → null');
+  assertEqual(run(ctx, 'parseLegacyPresetKey(null)'), null, 'null input → null');
 }
 
 suite('DEFAULT_POSITIONS');
 {
-  const dp = run(ctx, 'DEFAULT_POSITIONS');
-  assertEqual(dp, ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST'], 'defaults to soccer-7v7');
+  assertEqual(run(ctx, 'DEFAULT_POSITIONS'), ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST'], 'defaults to soccer 7');
 }
 
-suite('makePresetKey / parsePresetKey');
+suite('Formations — coord values are valid percentages');
 {
-  assertEqual(run(ctx, "makePresetKey('soccer', '7v7')"), 'soccer-7v7', 'makes soccer-7v7');
-  assertEqual(run(ctx, "makePresetKey('basketball', '')"), 'basketball', 'makes basketball (empty key)');
-  assertEqual(run(ctx, "makePresetKey('basketball', '3v3')"), 'basketball-3v3', 'makes basketball-3v3');
-
-  const parsed = run(ctx, "parsePresetKey('soccer-7v7')");
-  assertEqual(parsed, { sport: 'soccer', format: '7v7' }, 'parses soccer-7v7');
-
-  const parsed2 = run(ctx, "parsePresetKey('basketball')");
-  assertEqual(parsed2, { sport: 'basketball', format: '' }, 'parses basketball');
-
-  const parsed3 = run(ctx, "parsePresetKey('nonexistent')");
-  assertEqual(parsed3, { sport: 'custom', format: '' }, 'unknown preset falls back to custom');
-}
-
-suite('matchPresetFromPositions');
-{
-  assertEqual(run(ctx, "matchPresetFromPositions(['GK','LB','RB','LW','CM','RW','ST'])"), 'soccer-7v7', 'matches soccer-7v7');
-  assertEqual(run(ctx, "matchPresetFromPositions(['GK','LB','RB','CM','ST'])"), 'soccer-5v5', 'matches soccer-5v5');
-  assertEqual(run(ctx, "matchPresetFromPositions(['G','F','C'])"), 'basketball-3v3', 'matches basketball-3v3');
-  assertEqual(run(ctx, "matchPresetFromPositions(['PG','SG','SF','PF','C'])"), 'basketball', 'matches basketball 5v5');
-
-  // Order shouldn't matter
-  assertEqual(run(ctx, "matchPresetFromPositions(['ST','GK','CM','RB','LB'])"), 'soccer-5v5', 'matches regardless of order');
-
-  // Unknown positions
-  assertEqual(run(ctx, "matchPresetFromPositions(['X','Y','Z'])"), null, 'returns null for unknown');
-}
-
-suite('FORMATIONS — all presets have layouts');
-{
-  const formKeys = run(ctx, 'Object.keys(FORMATIONS)');
-
-  // Key formations exist
-  assert(formKeys.includes('soccer-5v5'), 'has soccer-5v5 formation');
-  assert(formKeys.includes('soccer-7v7'), 'has soccer-7v7 formation');
-  assert(formKeys.includes('basketball'), 'has basketball formation');
-  assert(formKeys.includes('basketball-3v3'), 'has basketball-3v3 formation');
-  assert(formKeys.includes('hockey'), 'has hockey formation');
-
-  // Each formation has fieldType and at least one layout
-  for (const key of formKeys) {
-    const f = run(ctx, `FORMATIONS['${key}']`);
-    assert(f.fieldType, `${key} has fieldType`);
-    assert(f.layouts.length >= 1, `${key} has at least 1 layout`);
-
-    // Each layout has name and coords
-    for (const layout of f.layouts) {
-      assert(layout.name, `${key}/${layout.name} has name`);
-      assert(layout.coords, `${key}/${layout.name} has coords`);
-
-      // Coords should match the preset's position count
-      const presetKey = key;
-      const presetPositions = run(ctx, `POSITION_PRESETS['${presetKey}'] || null`);
-      if (presetPositions) {
-        const coordKeys = Object.keys(layout.coords);
-        assertEqual(coordKeys.length, presetPositions.length,
-          `${key}/${layout.name} coord count matches preset`);
+  const sportKeys = run(ctx, 'Object.keys(SPORTS)');
+  for (const sportKey of sportKeys) {
+    const counts = run(ctx, `Object.keys(SPORTS["${sportKey}"].byCount)`);
+    for (const nStr of counts) {
+      const formations = run(ctx, `SPORTS["${sportKey}"].byCount[${nStr}].formations`);
+      for (const layout of formations) {
+        for (const [pos, coord] of Object.entries(layout.coords)) {
+          assert(coord[0] >= 0 && coord[0] <= 100, `${sportKey}/${nStr}/${layout.name}/${pos} x in [0,100]`);
+          assert(coord[1] >= 0 && coord[1] <= 100, `${sportKey}/${nStr}/${layout.name}/${pos} y in [0,100]`);
+        }
       }
     }
   }
 }
 
-suite('FORMATIONS — coord values are valid percentages');
+suite('Formations — coord count matches positions');
 {
-  const formKeys = run(ctx, 'Object.keys(FORMATIONS)');
-  for (const key of formKeys) {
-    const f = run(ctx, `FORMATIONS['${key}']`);
-    for (const layout of f.layouts) {
-      for (const [pos, coord] of Object.entries(layout.coords)) {
-        assert(coord[0] >= 0 && coord[0] <= 100, `${key}/${layout.name}/${pos} x in [0,100]`);
-        assert(coord[1] >= 0 && coord[1] <= 100, `${key}/${layout.name}/${pos} y in [0,100]`);
+  const sportKeys = run(ctx, 'Object.keys(SPORTS)');
+  for (const sportKey of sportKeys) {
+    const counts = run(ctx, `Object.keys(SPORTS["${sportKey}"].byCount)`);
+    for (const nStr of counts) {
+      const positions = run(ctx, `SPORTS["${sportKey}"].byCount[${nStr}].positions`);
+      const formations = run(ctx, `SPORTS["${sportKey}"].byCount[${nStr}].formations`);
+      for (const layout of formations) {
+        const coordKeys = Object.keys(layout.coords);
+        assertEqual(coordKeys.length, positions.length,
+          `${sportKey}/${nStr}/${layout.name} coord count matches position count`);
       }
     }
   }
@@ -172,8 +154,6 @@ suite('generateAutoLayout');
   assertEqual(Object.keys(coords).length, 5, 'generates 5 coordinates');
   assert(coords['A'], 'coord for A exists');
   assert(coords['E'], 'coord for E exists');
-
-  // All coords should be in valid range
   for (const [pos, [x, y]] of Object.entries(coords)) {
     assert(x > 0 && x < 100, `${pos} x in range`);
     assert(y >= 15 && y <= 85, `${pos} y in range`);

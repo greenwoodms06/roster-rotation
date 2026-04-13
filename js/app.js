@@ -58,7 +58,9 @@ let fieldZoneMode = false;    // zone drawing mode toggle
 let fieldZones = [];          // drawn zones: [{ points: [[x,y],...], color: 'blue' }, ...]
 let fieldZoneColor = 'blue';  // current zone color
 let fieldSelectedZone = null; // selected zone index for deletion, or null
-let fieldStandalonePreset = 'soccer-7v7'; // active preset when no team/season context
+let fieldStandaloneSport = 'soccer';       // active sport when no team/season context
+let fieldStandaloneCount = 7;              // active player count when no team/season context
+let seasonModalCount = 7;                  // working player count for the Season modal stepper
 let fieldCustomCount = 7;                // number of dots in custom sport mode
 let fieldCustomFieldType = 'generic';    // field background for custom sport
 
@@ -533,15 +535,10 @@ function getPeriodLabelPlural(n) {
  */
 function getSpecialPosition() {
   if (!roster || !roster.positions || roster.positions.length === 0) return null;
-  const preset = getSeasonPreset();
-  // Sports with a clearly special first position
-  const specialPresets = new Set([
-    'soccer-7v7', 'soccer-9v9', 'soccer-11v11',
-    'hockey', 'lacrosse',
-  ]);
-  if (preset && specialPresets.has(preset)) return roster.positions[0];
+  const info = getSeasonSport();
+  if (info && SPORTS[info.sport]?.hasSpecialFirst) return roster.positions[0];
   // Fallback: if positions[0] is a known keeper-type name
-  const knownSpecial = new Set(['GK', 'G']);
+  const knownSpecial = new Set(['GK', 'G', 'P']);
   if (knownSpecial.has(roster.positions[0])) return roster.positions[0];
   return null;
 }
@@ -791,13 +788,18 @@ function getSportIcon(teamSlug, seasonSlug) {
     ? seasons.find(s => s.slug === seasonSlug)
     : seasons[0];
   if (!season) return '';
-  const preset = season.preset || null;
-  if (preset && SPORT_ICONS[preset]) return SPORT_ICONS[preset];
+  // Modern: {sport, playerCount}
+  if (season.sport && SPORTS[season.sport]) return SPORTS[season.sport].icon;
+  // Legacy: preset string
+  if (season.preset) {
+    const parsed = parseLegacyPresetKey(season.preset);
+    if (parsed && SPORTS[parsed.sport]) return SPORTS[parsed.sport].icon;
+  }
   // Auto-detect from positions
   const r = Storage.loadRoster(teamSlug, season.slug);
   if (r) {
-    const matched = matchPresetFromPositions(r.positions);
-    if (matched && SPORT_ICONS[matched]) return SPORT_ICONS[matched];
+    const matched = findSportAndCount(r.positions);
+    if (matched && SPORTS[matched.sport]) return SPORTS[matched.sport].icon;
   }
   return '';
 }
@@ -1155,16 +1157,13 @@ function openSeasonModal() {
   sportSel.innerHTML = Object.entries(SPORTS).map(([key, s]) =>
     `<option value="${key}">${s.icon} ${s.name}</option>`
   ).join('');
-  sportSel.value = loadSettings().defaultSport || 'soccer';
-  onSportChange();
-  // Apply default format after sport change populated the format dropdown
-  const defFormat = loadSettings().defaultFormat || '';
-  const fmtSel = document.getElementById('formatSelect');
-  if (fmtSel && defFormat) {
-    const opts = Array.from(fmtSel.options).map(o => o.value);
-    if (opts.includes(defFormat)) fmtSel.value = defFormat;
-  }
-  onFormatChange();
+  const settings = loadSettings();
+  sportSel.value = settings.defaultSport || 'soccer';
+  // Seed the player-count stepper from settings, falling back to sport defaultN
+  const defaultSport = SPORTS[sportSel.value] || SPORTS.soccer;
+  seasonModalCount = settings.defaultPlayerCount || defaultSport.defaultN;
+  // Render directly — don't route through onSportChange (which would reset the count)
+  applySeasonSport(sportSel.value, /* resetCount */ false);
 
   const seasons = Storage.loadSeasons(ctxPickTeam);
   const copyRow = document.getElementById('copyRosterRow');
@@ -1188,36 +1187,63 @@ function closeSeasonModal() {
 }
 
 function onSportChange() {
+  // User changed sport mid-modal — reset the count to that sport's default
   const sportKey = document.getElementById('sportSelect').value;
+  applySeasonSport(sportKey, /* resetCount */ true);
+}
+
+function applySeasonSport(sportKey, resetCount) {
   const sport = SPORTS[sportKey];
   if (!sport) return;
 
-  const formatSel = document.getElementById('formatSelect');
   const formatRow = document.getElementById('formatRow');
-
-  formatSel.innerHTML = sport.formats.map(f =>
-    `<option value="${f.key}">${f.name}</option>`
-  ).join('');
-  formatSel.value = sport.formats[0].key;
-
-  // Show format row for all sports (hidden only for custom where positions are freeform)
+  // Hide the count row for custom (freeform positions)
   formatRow.style.display = sportKey === 'custom' ? 'none' : '';
 
-  onFormatChange();
+  if (resetCount && sportKey !== 'custom') {
+    seasonModalCount = sport.defaultN;
+  } else if (sportKey !== 'custom' && (!seasonModalCount || seasonModalCount < 2)) {
+    seasonModalCount = sport.defaultN;
+  }
+
+  renderSeasonCountStepper();
+  autoFillSeasonPositions();
 }
 
-function onFormatChange() {
+const SEASON_COUNT_MIN = 2;
+const SEASON_COUNT_MAX = 20;
+
+function renderSeasonCountStepper() {
+  const el = document.getElementById('seasonCountStepper');
+  if (!el) return;
+  const n = seasonModalCount;
+  el.innerHTML = renderStepperHtml({
+    minusFn: 'bumpSeasonCount(-1)',
+    plusFn: 'bumpSeasonCount(1)',
+    label: `${n}v${n}`,
+    minusDisabled: n <= SEASON_COUNT_MIN,
+    plusDisabled: n >= SEASON_COUNT_MAX,
+  });
+}
+
+function bumpSeasonCount(delta) {
+  const next = Math.max(SEASON_COUNT_MIN, Math.min(SEASON_COUNT_MAX, seasonModalCount + delta));
+  if (next === seasonModalCount) return;
+  seasonModalCount = next;
+  renderSeasonCountStepper();
+  autoFillSeasonPositions();
+}
+
+function autoFillSeasonPositions() {
   const sportKey = document.getElementById('sportSelect').value;
-  const formatKey = document.getElementById('formatSelect').value;
-  const preset = makePresetKey(sportKey, formatKey);
-  const positions = POSITION_PRESETS[preset] || [];
+  if (sportKey === 'custom') return; // leave user-typed positions alone
+  const positions = getPositionsForCount(sportKey, seasonModalCount);
   document.getElementById('positionsInput').value = positions.join(', ');
 }
 
-function getSelectedPreset() {
+function getSelectedSeasonSport() {
   const sportKey = document.getElementById('sportSelect').value;
-  const formatKey = document.getElementById('formatSelect').value;
-  return makePresetKey(sportKey, formatKey);
+  return { sport: sportKey, playerCount: sportKey === 'custom' ? null : seasonModalCount };
 }
 
 function toggleCopyRoster() {
@@ -1235,6 +1261,15 @@ function handlePositionBlur() {
       showToast('Duplicate positions removed', 'success');
     } else {
       showToast('Positions formatted', 'success');
+    }
+  }
+  // Keep the player-count stepper in sync with the edited positions list
+  const sportSel = document.getElementById('sportSelect');
+  if (sportSel && sportSel.value !== 'custom') {
+    const n = result.positions.length;
+    if (n >= SEASON_COUNT_MIN && n <= SEASON_COUNT_MAX && n !== seasonModalCount) {
+      seasonModalCount = n;
+      renderSeasonCountStepper();
     }
   }
 }
@@ -1263,7 +1298,8 @@ function saveSeason() {
     return;
   }
 
-  Storage.addSeason(ctxPickTeam, { slug, name, positions, preset: getSelectedPreset() });
+  const sportInfo = getSelectedSeasonSport();
+  Storage.addSeason(ctxPickTeam, { slug, name, positions, sport: sportInfo.sport, playerCount: sportInfo.playerCount });
 
   if (copyRosterEnabled && existingSeasons.length > 0) {
     const lastSeason = existingSeasons[existingSeasons.length - 1];
@@ -4908,13 +4944,22 @@ function loadSettings() {
     defaultPeriods: 4,
     defaultStarterMode: true,
     defaultSport: 'soccer',
-    defaultFormat: '7v7',
+    defaultPlayerCount: 7,
     defaultContinuity: 0,
     defaultGlobalMaxPeriods: null,
     defaultPeriodDuration: 720,
   };
   if (!raw) return defaults;
-  try { return { ...defaults, ...JSON.parse(raw) }; }
+  try {
+    const parsed = { ...defaults, ...JSON.parse(raw) };
+    // Migrate legacy defaultFormat ("7v7") → defaultPlayerCount (7)
+    if (parsed.defaultFormat && !('defaultPlayerCount' in JSON.parse(raw))) {
+      const m = String(parsed.defaultFormat).match(/^(\d+)v\d+$/);
+      if (m) parsed.defaultPlayerCount = parseInt(m[1]);
+    }
+    delete parsed.defaultFormat;
+    return parsed;
+  }
   catch { return defaults; }
 }
 
@@ -4981,12 +5026,15 @@ function openSettings() {
           </select>
         </div>
         <div class="settings-row">
-          <span class="settings-label">Field format</span>
-          <select id="settingsDefaultFormat" onchange="setDefaultFormat(this.value)">
-            ${(SPORTS[settings.defaultSport] || SPORTS.soccer).formats.map(f =>
-              `<option value="${f.key}"${settings.defaultFormat === f.key ? ' selected' : ''}>${f.name}</option>`
-            ).join('')}
-          </select>
+          <span class="settings-label">Players per side</span>
+          ${renderStepperHtml({
+            minusFn: 'bumpSettingsDefaultPlayerCount(-1)',
+            plusFn: 'bumpSettingsDefaultPlayerCount(1)',
+            label: `${settings.defaultPlayerCount}v${settings.defaultPlayerCount}`,
+            id: 'settingsDefaultPlayerCountLabel',
+            minusDisabled: settings.defaultPlayerCount <= SEASON_COUNT_MIN,
+            plusDisabled: settings.defaultPlayerCount >= SEASON_COUNT_MAX,
+          })}
         </div>
         <div class="settings-row">
           <span class="settings-label">Game format</span>
@@ -5157,23 +5205,36 @@ function setDefaultPeriods(val) {
 function setDefaultSport(sportKey) {
   const settings = loadSettings();
   settings.defaultSport = sportKey;
-  // Reset format to first available for this sport
+  // Reset player count to this sport's default
   const sport = SPORTS[sportKey];
-  settings.defaultFormat = sport ? sport.formats[0].key : '';
+  if (sport) settings.defaultPlayerCount = sport.defaultN;
   saveSettings(settings);
-  // Update format dropdown
-  const formatSel = document.getElementById('settingsDefaultFormat');
-  if (formatSel && sport) {
-    formatSel.innerHTML = sport.formats.map(f =>
-      `<option value="${f.key}"${settings.defaultFormat === f.key ? ' selected' : ''}>${f.name}</option>`
-    ).join('');
+  // Refresh the player-count stepper label + disabled states in place
+  const labelEl = document.getElementById('settingsDefaultPlayerCountLabel');
+  if (labelEl) labelEl.textContent = `${settings.defaultPlayerCount}v${settings.defaultPlayerCount}`;
+  const wrap = labelEl?.parentElement;
+  if (wrap) {
+    const [minusBtn, , plusBtn] = wrap.children;
+    if (minusBtn) minusBtn.disabled = settings.defaultPlayerCount <= SEASON_COUNT_MIN;
+    if (plusBtn) plusBtn.disabled = settings.defaultPlayerCount >= SEASON_COUNT_MAX;
   }
 }
 
-function setDefaultFormat(formatKey) {
+function bumpSettingsDefaultPlayerCount(delta) {
   const settings = loadSettings();
-  settings.defaultFormat = formatKey;
+  const cur = settings.defaultPlayerCount || (SPORTS[settings.defaultSport]?.defaultN ?? 7);
+  const next = Math.max(SEASON_COUNT_MIN, Math.min(SEASON_COUNT_MAX, cur + delta));
+  if (next === cur) return;
+  settings.defaultPlayerCount = next;
   saveSettings(settings);
+  const labelEl = document.getElementById('settingsDefaultPlayerCountLabel');
+  if (labelEl) labelEl.textContent = `${next}v${next}`;
+  const wrap = labelEl?.parentElement;
+  if (wrap) {
+    const [minusBtn, , plusBtn] = wrap.children;
+    if (minusBtn) minusBtn.disabled = next <= SEASON_COUNT_MIN;
+    if (plusBtn) plusBtn.disabled = next >= SEASON_COUNT_MAX;
+  }
 }
 
 function toggleDefaultStarterMode() {
@@ -5239,7 +5300,7 @@ function resetGameDayDefaults() {
   settings.defaultPeriods = 4;
   settings.defaultStarterMode = true;
   settings.defaultSport = 'soccer';
-  settings.defaultFormat = '7v7';
+  settings.defaultPlayerCount = 7;
   settings.defaultContinuity = 0;
   settings.defaultGlobalMaxPeriods = null;
   settings.defaultTimingPrecision = 'approx';
