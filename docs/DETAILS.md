@@ -20,6 +20,7 @@ On top of the core fairness algorithm, the coach can apply optional constraints 
 - **Position stickiness** -- reduce position changes between periods (Off / Medium / High). Use case: "Stop moving kids every 8 minutes, let them settle in."
 - **Special position max** -- cap how many periods any player can play the first position (GK, G, etc.). Use case: "No kid plays goalkeeper more than once." Only appears for sports with a designated special position (soccer, hockey, lacrosse).
 - **Global max periods per player** -- cap how many total periods any player can play, regardless of position. Use case: "No player plays more than 3 of 4 quarters." Works with any sport.
+- **Max subs per break** -- cap how many players can be subbed out between consecutive periods. Use case: "I've got 14 kids and only want to swap 2 at a time so the game keeps flowing." Defaults to Any. Sub-cap wins over equal-time when they conflict (a single game may look uneven; the season averages it out). Soft-relaxes if prior-period players have all hit their game/position caps.
 
 All constraints default to off (or to the values set in Settings). When off, behavior is identical to the original algorithm. Post-generation tap-to-swap is always available for manual adjustments.
 
@@ -62,7 +63,7 @@ Season creation uses a Sport dropdown plus a **Players per side** stepper (e.g. 
 1. Open the app - Game Day tab
 2. Set the game format with the `+/−` stepper (any count from 1 to 999; label auto-derives: 4 Quarters, 2 Halves, 1 Game, everything else as Periods)
 3. Check who's available, drag the grip handle to reorder for starters
-4. Optionally expand Constraints to set pins, stickiness, position max, or global max periods
+4. Optionally expand Constraints to set pins, stickiness, position max, global max periods, or max subs per break
 5. Tap **Generate Lineup**
 6. Use the **Lineup** tab on the sideline (see In-Game Features below)
 
@@ -132,7 +133,7 @@ All data lives on your device. Use the **⋮** menu in the header:
 Tap **⋮ → Settings** to customize the app:
 
 - **Theme** -- Dark, Light, or System (follows your phone's setting)
-- **Game Structure** -- default sport, default players per side (2–20), game format (stepper: any count from 1 to 999; seeds new games only), segment length (MM:SS), starter mode, position stickiness, max segments per player. Changing the default sport resets the player count to that sport's typical default (e.g., soccer → 7, basketball → 5, hockey → 6).
+- **Game Structure** -- default sport, default players per side (2–20), game format (stepper: any count from 1 to 999; seeds new games only), segment length (MM:SS), starter mode, position stickiness, max segments per player, max subs per break. Changing the default sport resets the player count to that sport's typical default (e.g., soccer → 7, basketball → 5, hockey → 6).
 - **Tracking & Clock** -- timing precision (Approx / Exact), clock direction (↓ Down / ↑ Up)
 - **Hints** -- show or dismiss all first-use tip banners
 
@@ -242,7 +243,7 @@ Individual suites can be imported directly, but `run_all.mjs` is the standard en
 
 | Suite | Assertions | Coverage |
 |-------|------------|---------|
-| Engine | 355 | Generation, equal time, exact fit, exclusions, starters, locks, lock validation, specialPosMax, continuity, globalMaxPeriods, season deficit, halves, 5v5, getPlayerSummary (v4), rebalanceFromPeriod, firstAvailableStart edge cases, spacing/rest |
+| Engine | 355 | Generation, equal time, exact fit, exclusions, starters, locks, lock validation, specialPosMax, continuity, globalMaxPeriods, maxSubsPerBreak, season deficit, halves, 5v5, getPlayerSummary (v4), rebalanceFromPeriod, firstAvailableStart edge cases, spacing/rest |
 | Formations | 550 | All sports/formats, preset derivation, icons, preset key roundtrip, position matching, formation layout validation, auto-layout |
 | Storage | 125 | Team/season/roster/game/plays CRUD, game sorting, season stats (v4 fractional), cascade delete, v4 export format, import with auto-migration, roundtrip tests |
 | Credit | 115 | v4 entry/slot credit, occupantAtTime, wrapEngineOutput, v4↔v3 conversion, migration, validation, gamePlayedFraction, seasonFairnessRatio |

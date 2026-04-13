@@ -65,7 +65,7 @@ Supports soccer (5v5 through 11v11), basketball, football, hockey, lacrosse, bas
 
 **Season tab** — Three sub-tabs: Overview (games played, W-L-D record, roster size, avg availability, goals for/against with goal differential, shutouts, playing time chart), Games (availability dot chart with W/L/D letters and fairness coloring, game history with scores and fairness badges), Players (per-player stats table, position distribution, goals chart).
 
-**Game Day constraints** — Optional controls before generating: position pins (lock a player to a position), position stickiness (reduce changes between periods), max periods per player (global cap on playing time), and per-position max (cap how many periods anyone plays a given position). Defaults configurable in Settings.
+**Game Day constraints** — Optional controls before generating: position pins (lock a player to a position), position stickiness (reduce changes between periods), max periods per player (global cap on playing time), per-position max (cap how many periods anyone plays a given position), and max subs per break (limit roster changes between periods — useful for large rosters). Defaults configurable in Settings.
 
 **Field tab** — SVG field diagram with draggable position dots, route drawing, zone drawing (freehand shaded areas with 4-color palette), defense overlay, and saved plays. Works standalone (no team needed) or synced with a game plan.
 
@@ -82,7 +82,7 @@ All data lives on your device. Use the **⋮** menu:
 
 ## Settings
 
-Tap **⋮ → Settings** for theme (dark/light/system), Game Structure defaults (sport, field format, game format, segment length, starter mode, position stickiness, max segments per player), Tracking & Clock defaults (timing precision, clock direction), and hint management. Tap **⋮ → Help** for a searchable reference of all features.
+Tap **⋮ → Settings** for theme (dark/light/system), Game Structure defaults (sport, field format, game format, segment length, starter mode, position stickiness, max segments per player, max subs per break), Tracking & Clock defaults (timing precision, clock direction), and hint management. Tap **⋮ → Help** for a searchable reference of all features.
 
 ## Updates
 
