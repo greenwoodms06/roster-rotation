@@ -756,6 +756,10 @@ function loadContextData() {
   document.getElementById('toggleStarters').classList.toggle('on', starterMode);
   gameContinuity = settings.defaultContinuity || 0;
   gameGlobalMaxPeriods = settings.defaultGlobalMaxPeriods || null;
+  // Seed per-position max from settings default (applies uniformly to all positions)
+  if (settings.defaultPositionMax != null && roster.positions) {
+    for (const pos of roster.positions) gamePositionMax[pos] = settings.defaultPositionMax;
+  }
 
   // Restore roster/gameday elements hidden by field-only mode
   const rosterCard = document.querySelector('#tab-roster > .card');
@@ -4963,6 +4967,7 @@ function loadSettings() {
     defaultPlayerCount: 7,
     defaultContinuity: 0,
     defaultGlobalMaxPeriods: null,
+    defaultPositionMax: null,
     defaultPeriodDuration: 720,
   };
   if (!raw) return defaults;
@@ -5085,12 +5090,25 @@ function openSettings() {
         </div>
         <div class="settings-row">
           <span class="settings-label">Max segments / player</span>
-          <select id="settingsGlobalMaxPeriods" onchange="setDefaultGlobalMaxPeriods(this.value)">
-            <option value=""${!settings.defaultGlobalMaxPeriods ? ' selected' : ''}>No Limit</option>
-            ${Array.from({ length: Math.max(1, settings.defaultPeriods - 1) }, (_, i) => i + 1).map(v =>
-              `<option value="${v}"${settings.defaultGlobalMaxPeriods === v ? ' selected' : ''}>${v}</option>`
-            ).join('')}
-          </select>
+          ${renderStepperHtml({
+            minusFn: 'bumpSettingsGlobalMaxPeriods(-1)',
+            plusFn: 'bumpSettingsGlobalMaxPeriods(1)',
+            label: settings.defaultGlobalMaxPeriods == null ? 'Any' : String(settings.defaultGlobalMaxPeriods),
+            id: 'settingsGlobalMaxPeriodsLabel',
+            minusDisabled: settings.defaultGlobalMaxPeriods == null,
+            plusDisabled: settings.defaultGlobalMaxPeriods != null && settings.defaultGlobalMaxPeriods >= settings.defaultPeriods - 1,
+          })}
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Max per position (all)</span>
+          ${renderStepperHtml({
+            minusFn: 'bumpSettingsPositionMax(-1)',
+            plusFn: 'bumpSettingsPositionMax(1)',
+            label: settings.defaultPositionMax == null ? 'Any' : String(settings.defaultPositionMax),
+            id: 'settingsPositionMaxLabel',
+            minusDisabled: settings.defaultPositionMax == null,
+            plusDisabled: settings.defaultPositionMax != null && settings.defaultPositionMax >= settings.defaultPeriods - 1,
+          })}
         </div>
       </div>
 
@@ -5124,17 +5142,6 @@ function openSettings() {
         </div>
       </div>
 
-      <div class="settings-section">
-        <div class="settings-section-title">Links</div>
-        <div class="settings-row">
-          <span class="settings-label">Source code</span>
-          <a href="https://github.com/greenwoodms06/roster-rotation" target="_blank" rel="noopener" class="settings-link" onclick="closeSettings()">GitHub <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>
-        </div>
-        <div class="settings-row">
-          <span class="settings-label">Privacy policy</span>
-          <a href="privacy.html" target="_blank" rel="noopener" class="settings-link" onclick="closeSettings()">View <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>
-        </div>
-      </div>
     </div>
   `;
   document.body.appendChild(overlay);
@@ -5202,20 +5209,72 @@ function bumpSettingsDefaultPeriods(delta) {
 function setDefaultPeriods(val) {
   const settings = loadSettings();
   settings.defaultPeriods = parseInt(val);
-  // If global max is now >= periods, reset it
+  // If max values are now >= periods, reset them (no effective limit)
   if (settings.defaultGlobalMaxPeriods != null && settings.defaultGlobalMaxPeriods >= settings.defaultPeriods) {
     settings.defaultGlobalMaxPeriods = null;
   }
-  saveSettings(settings);
-  // Refresh the max periods dropdown since options depend on period count
-  const maxSel = document.getElementById('settingsGlobalMaxPeriods');
-  if (maxSel) {
-    let optHtml = `<option value=""${!settings.defaultGlobalMaxPeriods ? ' selected' : ''}>No Limit</option>`;
-    for (let v = 1; v < settings.defaultPeriods; v++) {
-      optHtml += `<option value="${v}"${settings.defaultGlobalMaxPeriods === v ? ' selected' : ''}>${v}</option>`;
-    }
-    maxSel.innerHTML = optHtml;
+  if (settings.defaultPositionMax != null && settings.defaultPositionMax >= settings.defaultPeriods) {
+    settings.defaultPositionMax = null;
   }
+  saveSettings(settings);
+  updateMaxPerPlayerStepper(settings);
+  updateMaxPerPositionStepper(settings);
+}
+
+function updateMaxPerPlayerStepper(settings) {
+  const labelEl = document.getElementById('settingsGlobalMaxPeriodsLabel');
+  if (!labelEl) return;
+  labelEl.textContent = settings.defaultGlobalMaxPeriods == null ? 'Any' : String(settings.defaultGlobalMaxPeriods);
+  const wrap = labelEl.parentElement;
+  if (wrap) {
+    const [minusBtn, , plusBtn] = wrap.children;
+    if (minusBtn) minusBtn.disabled = settings.defaultGlobalMaxPeriods == null;
+    if (plusBtn) plusBtn.disabled = settings.defaultGlobalMaxPeriods != null && settings.defaultGlobalMaxPeriods >= settings.defaultPeriods - 1;
+  }
+}
+
+function updateMaxPerPositionStepper(settings) {
+  const labelEl = document.getElementById('settingsPositionMaxLabel');
+  if (!labelEl) return;
+  labelEl.textContent = settings.defaultPositionMax == null ? 'Any' : String(settings.defaultPositionMax);
+  const wrap = labelEl.parentElement;
+  if (wrap) {
+    const [minusBtn, , plusBtn] = wrap.children;
+    if (minusBtn) minusBtn.disabled = settings.defaultPositionMax == null;
+    if (plusBtn) plusBtn.disabled = settings.defaultPositionMax != null && settings.defaultPositionMax >= settings.defaultPeriods - 1;
+  }
+}
+
+function bumpSettingsGlobalMaxPeriods(delta) {
+  const settings = loadSettings();
+  const maxVal = settings.defaultPeriods - 1;
+  const cur = settings.defaultGlobalMaxPeriods;
+  let next;
+  if (cur == null) next = delta > 0 ? 1 : null;
+  else {
+    next = cur + delta;
+    if (next < 1) next = null;
+    else if (next > maxVal) next = maxVal;
+  }
+  settings.defaultGlobalMaxPeriods = next;
+  saveSettings(settings);
+  updateMaxPerPlayerStepper(settings);
+}
+
+function bumpSettingsPositionMax(delta) {
+  const settings = loadSettings();
+  const maxVal = settings.defaultPeriods - 1;
+  const cur = settings.defaultPositionMax;
+  let next;
+  if (cur == null) next = delta > 0 ? 1 : null;
+  else {
+    next = cur + delta;
+    if (next < 1) next = null;
+    else if (next > maxVal) next = maxVal;
+  }
+  settings.defaultPositionMax = next;
+  saveSettings(settings);
+  updateMaxPerPositionStepper(settings);
 }
 
 function setDefaultSport(sportKey) {
@@ -5319,6 +5378,7 @@ function resetGameDayDefaults() {
   settings.defaultPlayerCount = 7;
   settings.defaultContinuity = 0;
   settings.defaultGlobalMaxPeriods = null;
+  settings.defaultPositionMax = null;
   settings.defaultTimingPrecision = 'approx';
   settings.defaultPeriodDuration = 720;
   settings.defaultClockDirection = 'down';
