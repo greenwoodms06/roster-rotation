@@ -911,6 +911,41 @@ suite('Engine — maxSubsPerBreak=0 freezes roster across periods');
   }
 }
 
+suite('Engine — maxSubsPerBreak preserves equal-time when feasible (regression: 9p/5pos/9per/K=2)');
+{
+  // Regression: 9 players, 5 positions, 9 periods, firstAvailableStart=true, K=2.
+  // Allocation is exactly 5 periods per player (45 slots / 9 players). Earlier
+  // the greedy scheduler produced a 6/4 split. The post-repair pass must
+  // rebalance without exceeding K=2 at any boundary.
+  const roster = makeRoster(9, ['QB', 'C', 'RB', 'X', 'Z']);
+  run(ctx, `
+    globalThis._engine3 = new RotationEngine(${JSON.stringify(roster)}, {});
+    globalThis._plan3 = globalThis._engine3.generateGamePlan(
+      '2026-04-14', ${JSON.stringify(pids(9))}, 9, true,
+      { maxSubsPerBreak: 2 }
+    );
+  `);
+  const plan = run(ctx, 'globalThis._plan3');
+
+  const counts = {};
+  for (const pid of pids(9)) counts[pid] = 0;
+  for (const pa of plan.periodAssignments) {
+    for (const pid of Object.values(pa.assignments)) {
+      counts[pid]++;
+    }
+  }
+  for (const pid of pids(9)) {
+    assertEqual(counts[pid], 5, `${pid} plays exactly 5 periods`);
+  }
+
+  for (let i = 1; i < plan.periodAssignments.length; i++) {
+    const prev = new Set(Object.values(plan.periodAssignments[i - 1].assignments));
+    const cur = Object.values(plan.periodAssignments[i].assignments);
+    const shared = cur.filter(p => prev.has(p)).length;
+    assert(shared >= 3, `period ${i + 1}: shares ≥3 with prior (K=2, got ${shared})`);
+  }
+}
+
 suite('Engine — maxSubsPerBreak with globalMaxPeriods produces valid plan');
 {
   // 10 players, 7 positions, 4 periods, K=1 + globalMax=3 (tight but feasible).

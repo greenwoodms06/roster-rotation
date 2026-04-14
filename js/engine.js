@@ -58,6 +58,10 @@ class RotationEngine {
     const periodRosters = this._schedulePeriods(
       availableIds, periodsPerPlayer, numPeriods, firstAvailableStart, [], maxSubsPerBreak
     );
+    this._repairAllocation(
+      periodRosters, periodsPerPlayer, maxSubsPerBreak,
+      firstAvailableStart ? 1 : 0
+    );
 
     const gamePositionCounts = {};
     availableIds.forEach(pid => (gamePositionCounts[pid] = {}));
@@ -340,6 +344,96 @@ class RotationEngine {
     }
 
     return periodRosters;
+  }
+
+  /**
+   * Post-repair: fix equal-time violations left by the greedy scheduler when
+   * they can be resolved without breaking maxSubsPerBreak. Tries single swaps
+   * first, then 2-chain swaps through an intermediate player. If no safe swap
+   * exists (equal-time infeasible under the sub cap), the schedule is left as
+   * produced — sub-cap stays authoritative in that case.
+   *
+   * Mutates periodRosters in place.
+   */
+  _repairAllocation(periodRosters, periodsPerPlayer, maxSubsPerBreak, startPeriod = 0) {
+    if (maxSubsPerBreak == null) return;
+    const numPeriods = periodRosters.length;
+    if (numPeriods === 0) return;
+
+    const pids = Object.keys(periodsPerPlayer);
+    const actual = {};
+    for (const pid of pids) actual[pid] = 0;
+    for (const r of periodRosters) for (const pid of r) actual[pid] = (actual[pid] || 0) + 1;
+
+    const rosterSets = periodRosters.map(r => new Set(r));
+    const subsAt = (p) => {
+      if (p < 0 || p >= numPeriods - 1) return 0;
+      const a = rosterSets[p], b = rosterSets[p + 1];
+      let n = 0;
+      for (const x of a) if (!b.has(x)) n++;
+      return n;
+    };
+
+    const canSwap = (p, outPid, inPid) => {
+      if (p < startPeriod || p >= numPeriods) return false;
+      if (!rosterSets[p].has(outPid) || rosterSets[p].has(inPid)) return false;
+      if (p > 0) {
+        const prev = rosterSets[p - 1];
+        const delta = (prev.has(outPid) ? 1 : 0) - (prev.has(inPid) ? 1 : 0);
+        if (subsAt(p - 1) + delta > maxSubsPerBreak) return false;
+      }
+      if (p < numPeriods - 1) {
+        const next = rosterSets[p + 1];
+        const delta = (next.has(outPid) ? 1 : 0) - (next.has(inPid) ? 1 : 0);
+        if (subsAt(p) + delta > maxSubsPerBreak) return false;
+      }
+      return true;
+    };
+
+    const applySwap = (p, outPid, inPid) => {
+      rosterSets[p].delete(outPid);
+      rosterSets[p].add(inPid);
+      const idx = periodRosters[p].indexOf(outPid);
+      periodRosters[p][idx] = inPid;
+      actual[outPid]--;
+      actual[inPid]++;
+    };
+
+    const findOver = () => pids.find(p => actual[p] > (periodsPerPlayer[p] || 0));
+    const findUnder = () => pids.find(p => actual[p] < (periodsPerPlayer[p] || 0));
+
+    let guard = 0;
+    const maxIter = pids.length * numPeriods + 10;
+    while (guard++ < maxIter) {
+      const ov = findOver();
+      const un = findUnder();
+      if (!ov || !un) break;
+
+      let swapped = false;
+      for (let p = startPeriod; p < numPeriods; p++) {
+        if (canSwap(p, ov, un)) { applySwap(p, ov, un); swapped = true; break; }
+      }
+      if (swapped) continue;
+
+      // 2-chain via intermediate X: swap ov→X at pA, then X→un at pB.
+      outer: for (const x of pids) {
+        if (x === ov || x === un) continue;
+        for (let pA = startPeriod; pA < numPeriods; pA++) {
+          if (!canSwap(pA, ov, x)) continue;
+          applySwap(pA, ov, x);
+          for (let pB = startPeriod; pB < numPeriods; pB++) {
+            if (pB === pA) continue;
+            if (canSwap(pB, x, un)) {
+              applySwap(pB, x, un);
+              swapped = true;
+              break outer;
+            }
+          }
+          applySwap(pA, x, ov); // undo
+        }
+      }
+      if (!swapped) break;
+    }
   }
 
   // -- Phase 3: Position Assignment ---------------------------------
@@ -670,6 +764,9 @@ class RotationEngine {
     const periodRosters = this._schedulePeriods(
       remainingAvailable, periodsPerPlayer, remainingPeriods, false, frozenRosters, maxSubsPerBreak
     );
+    // Skip period 0 in rebalance: that boundary adjoins the last frozen
+    // period, which _repairAllocation doesn't currently model.
+    this._repairAllocation(periodRosters, periodsPerPlayer, maxSubsPerBreak, 1);
 
     // Step 6: Assign positions (Phase 3), seeding from frozen data
     const gamePositionCounts = {};
