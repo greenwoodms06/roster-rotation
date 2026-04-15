@@ -56,7 +56,7 @@ class RotationEngine {
 
     const periodsPerPlayer = this._allocatePlayingTime(availableIds, numPeriods, globalMaxPeriods, firstAvailableStart);
     const periodRosters = this._schedulePeriods(
-      availableIds, periodsPerPlayer, numPeriods, firstAvailableStart, [], maxSubsPerBreak
+      availableIds, periodsPerPlayer, numPeriods, firstAvailableStart, [], maxSubsPerBreak, globalMaxPeriods
     );
     this._repairAllocation(
       periodRosters, periodsPerPlayer, maxSubsPerBreak,
@@ -223,13 +223,33 @@ class RotationEngine {
    * @param {string[][]} [priorRosters=[]] — rosters from frozen periods (for rebalance
    *   spacing continuity). Each element is an array of player IDs who played that period.
    */
-  _schedulePeriods(availableIds, periodsPerPlayer, numPeriods, firstAvailableStart, priorRosters = [], maxSubsPerBreak = null) {
+  _schedulePeriods(availableIds, periodsPerPlayer, numPeriods, firstAvailableStart, priorRosters = [], maxSubsPerBreak = null, globalMaxPeriods = null) {
     const remaining = { ...periodsPerPlayer };
     const periodRosters = Array.from({ length: numPeriods }, () => []);
     const N = this.numPositions;
     const holdMin = (maxSubsPerBreak != null)
       ? Math.max(0, N - maxSubsPerBreak)
       : 0;
+
+    // Hard per-player cap for forced-holdover enforcement. globalMaxPeriods is
+    // a HARD cap (never exceeded even to satisfy K); maxSubsPerBreak is SOFT
+    // and relaxes when the cap exhausts the hold-over pool. Without a hard
+    // cap, holdovers may exceed their equal-time target to satisfy K.
+    const hasHardCap = globalMaxPeriods != null && globalMaxPeriods < numPeriods;
+    const starterSetHard = (firstAvailableStart && hasHardCap)
+      ? new Set(availableIds.slice(0, this.numPositions))
+      : null;
+    const hardCap = {};
+    if (hasHardCap) {
+      for (const pid of availableIds) {
+        hardCap[pid] = (starterSetHard && !starterSetHard.has(pid))
+          ? Math.min(globalMaxPeriods, numPeriods - 1)
+          : globalMaxPeriods;
+      }
+    }
+    const played = {};
+    availableIds.forEach(pid => { played[pid] = 0; });
+    const underCap = (pid) => !hasHardCap || played[pid] < hardCap[pid];
 
     // Spacing trackers: seed from prior (frozen) periods if provided
     const lastPlayedPeriod = {};   // period index when player last played (-1 = never)
@@ -254,12 +274,27 @@ class RotationEngine {
       }
     }
 
+    // Season fairness tiebreaker: lower ratio = played less this season = prefer.
+    // Used to rotate forced overflow across games when in-game tiebreakers tie.
+    const seasonRatio = {};
+    for (const pid of availableIds) {
+      const s = this.seasonStats[pid];
+      seasonRatio[pid] = (s && s.totalPeriodsAvailable > 0)
+        ? s.totalPeriodsPlayed / s.totalPeriodsAvailable
+        : 0;
+    }
+    // Per-generation random tiebreaker so identical ties don't deterministically
+    // fall on the lowest-indexed player every run.
+    const jitter = {};
+    for (const pid of availableIds) jitter[pid] = Math.random();
+
     let startPeriod = 0;
     if (firstAvailableStart && numPeriods > 0) {
       const starters = availableIds.slice(0, this.numPositions);
       periodRosters[0] = [...starters];
       starters.forEach(pid => {
         remaining[pid]--;
+        played[pid]++;
         lastPlayedPeriod[pid] = 0;
         consecutivePlays[pid]++;
       });
@@ -287,7 +322,17 @@ class RotationEngine {
         const gapB = period - lastPlayedPeriod[b];
         if (gapA !== gapB) return gapB - gapA;
         // Quaternary: fatigue — prefer players with fewer consecutive plays
-        return consecutivePlays[a] - consecutivePlays[b];
+        if (consecutivePlays[a] !== consecutivePlays[b]) {
+          return consecutivePlays[a] - consecutivePlays[b];
+        }
+        // Quinary: season fairness — prefer players with lower season ratio.
+        // Rotates forced overflow across games instead of loading it on the
+        // lowest-indexed player every time.
+        if (seasonRatio[a] !== seasonRatio[b]) {
+          return seasonRatio[a] - seasonRatio[b];
+        }
+        // Senary: jitter — break true ties randomly.
+        return jitter[a] - jitter[b];
       };
       candidates.sort(cmp);
 
@@ -304,11 +349,13 @@ class RotationEngine {
       let selected;
       if (holdMin > 0 && priorRoster) {
         const priorSet = new Set(priorRoster);
-        // Sub-cap wins over equal-time: allow hold-overs past their quota
-        // rather than drop below the floor. Comparator naturally demotes
-        // exhausted players (urgency = -periodsLeftAfter), so fresh players
-        // are picked first.
-        const holdPool = availableIds.filter(pid => priorSet.has(pid));
+        // globalMaxPeriods is a HARD cap; maxSubsPerBreak is SOFT and relaxes
+        // when the hold-over pool is exhausted against the cap. If no hard
+        // cap is set, holdovers may exceed their equal-time target to satisfy
+        // K (prior behavior).
+        const holdPool = availableIds.filter(
+          pid => priorSet.has(pid) && underCap(pid)
+        );
         holdPool.sort(cmp);
         const actualHold = Math.min(holdMin, holdPool.length);
         const holdovers = holdPool.slice(0, actualHold);
@@ -319,9 +366,19 @@ class RotationEngine {
         const filled = [...holdovers, ...fillPrimary.slice(0, N - actualHold)];
         if (filled.length < N) {
           const fillFallback = availableIds
-            .filter(pid => !usedSet.has(pid) && !fillPrimary.includes(pid));
+            .filter(pid => !usedSet.has(pid) && !fillPrimary.includes(pid) && underCap(pid));
           fillFallback.sort(cmp);
           filled.push(...fillFallback.slice(0, N - filled.length));
+        }
+        // Last resort: if still short, the scenario is infeasible under the
+        // hard cap. Fill remaining slots with cap-exceeding players rather
+        // than leave positions empty. globalMax is violated — but only as
+        // a last resort when no valid plan exists.
+        if (filled.length < N) {
+          const lastResort = availableIds
+            .filter(pid => !new Set(filled).has(pid));
+          lastResort.sort(cmp);
+          filled.push(...lastResort.slice(0, N - filled.length));
         }
         selected = filled;
       } else {
@@ -334,6 +391,7 @@ class RotationEngine {
       for (const pid of availableIds) {
         if (selectedSet.has(pid)) {
           remaining[pid]--;
+          played[pid]++;
           lastPlayedPeriod[pid] = period;
           consecutivePlays[pid]++;
         } else if (remaining[pid] >= 0) {
@@ -762,7 +820,7 @@ class RotationEngine {
     // Build frozen rosters for spacing continuity across the rebalance boundary
     const frozenRosters = frozen.map(pa => extractPidsFromAssignments(pa.assignments));
     const periodRosters = this._schedulePeriods(
-      remainingAvailable, periodsPerPlayer, remainingPeriods, false, frozenRosters, maxSubsPerBreak
+      remainingAvailable, periodsPerPlayer, remainingPeriods, false, frozenRosters, maxSubsPerBreak, globalMaxPeriods
     );
     // Skip period 0 in rebalance: that boundary adjoins the last frozen
     // period, which _repairAllocation doesn't currently model.

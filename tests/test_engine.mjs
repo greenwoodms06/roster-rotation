@@ -946,22 +946,188 @@ suite('Engine — maxSubsPerBreak preserves equal-time when feasible (regression
   }
 }
 
-suite('Engine — maxSubsPerBreak with globalMaxPeriods produces valid plan');
+suite('Engine — globalMaxPeriods is a HARD cap; maxSubsPerBreak relaxes');
 {
-  // 10 players, 7 positions, 4 periods, K=1 + globalMax=3 (tight but feasible).
-  // Sub-cap takes precedence: some players may exceed their equal-time share.
+  // 10 players, 7 positions, 4 periods, K=2 + globalMax=3 (feasible).
+  // globalMax is hard: no player may play more than 3 periods. K relaxes if
+  // the hard cap exhausts the hold-over pool at any break.
   const roster = makeRoster(10, ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST']);
   run(ctx, `
     globalThis._engine2 = new RotationEngine(${JSON.stringify(roster)}, {});
     globalThis._plan2 = globalThis._engine2.generateGamePlan(
       '2026-03-25', ${JSON.stringify(pids(10))}, 4, false,
-      { maxSubsPerBreak: 1, globalMaxPeriods: 3 }
+      { maxSubsPerBreak: 2, globalMaxPeriods: 3 }
     );
   `);
   const plan = run(ctx, 'globalThis._plan2');
   assertEqual(plan.periodAssignments.length, 4, 'all 4 periods generated');
+  const counts = {};
+  for (const pid of pids(10)) counts[pid] = 0;
   for (let i = 0; i < 4; i++) {
     assertEqual(Object.keys(plan.periodAssignments[i].assignments).length, 7,
       `period ${i + 1} fully staffed`);
+    for (const pid of Object.values(plan.periodAssignments[i].assignments)) {
+      counts[pid]++;
+    }
   }
+  const maxP = Math.max(...Object.values(counts));
+  assert(maxP <= 3, `globalMax=3 honored as hard cap (got max ${maxP})`);
+}
+
+suite('Engine — infeasible constraints: fully staff periods as last resort');
+{
+  // 10p/7pos/4per/K=1/globalMax=3. Max distributable = 7*3 + 3 + 2 + 1 = 27,
+  // but 28 slots are needed. Truly infeasible. Engine must still fully staff
+  // every period — globalMax relaxes as last resort rather than leaving an
+  // empty position.
+  const roster = makeRoster(10, ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST']);
+  run(ctx, `
+    globalThis._engInf = new RotationEngine(${JSON.stringify(roster)}, {});
+    globalThis._planInf = globalThis._engInf.generateGamePlan(
+      '2026-04-20', ${JSON.stringify(pids(10))}, 4, false,
+      { maxSubsPerBreak: 1, globalMaxPeriods: 3 }
+    );
+  `);
+  const plan = run(ctx, 'globalThis._planInf');
+  for (let i = 0; i < 4; i++) {
+    assertEqual(Object.keys(plan.periodAssignments[i].assignments).length, 7,
+      `period ${i + 1} fully staffed despite infeasibility`);
+  }
+}
+
+suite('Engine — 11p/7pos/4per/K=2/globalMax=3: cap honored, fair spread');
+{
+  // User's scenario: with the hard cap, fair 6×3+5×2 is achievable — K relaxes
+  // minimally at whichever break exhausts the hold-over pool.
+  const roster = makeRoster(11, ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST']);
+  run(ctx, `
+    globalThis._engUser = new RotationEngine(${JSON.stringify(roster)}, {});
+    globalThis._planUser = globalThis._engUser.generateGamePlan(
+      '2026-04-15', ${JSON.stringify(pids(11))}, 4, false,
+      { maxSubsPerBreak: 2, globalMaxPeriods: 3, continuity: 2 }
+    );
+  `);
+  const plan = run(ctx, 'globalThis._planUser');
+  const counts = {};
+  for (const pid of pids(11)) counts[pid] = 0;
+  for (const pa of plan.periodAssignments) {
+    for (const pid of Object.values(pa.assignments)) counts[pid]++;
+  }
+  const vals = Object.values(counts);
+  assert(Math.max(...vals) <= 3, `max <= 3 (got ${Math.max(...vals)})`);
+  assert(Math.min(...vals) >= 2, `min >= 2 (got ${Math.min(...vals)})`);
+  assertEqual(vals.filter(v => v === 3).length, 6, 'exactly 6 players at 3 periods');
+  assertEqual(vals.filter(v => v === 2).length, 5, 'exactly 5 players at 2 periods');
+}
+
+suite('Engine — maxSubsPerBreak=2 with 11p/7pos/4per: forced overflow is minimal');
+{
+  // 11 players, 7 positions, 4 periods = 28 slots. maxSubsPerBreak=2.
+  // Mathematically, |P0∩P1∩P2∩P3| ≥ 1 — one player MUST play all 4 periods.
+  // But at most one, and nobody should be stuck below 2 periods.
+  const roster = makeRoster(11, ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST']);
+  run(ctx, `
+    globalThis._eng11 = new RotationEngine(${JSON.stringify(roster)}, {});
+    globalThis._plan11 = globalThis._eng11.generateGamePlan(
+      '2026-04-15', ${JSON.stringify(pids(11))}, 4, false,
+      { maxSubsPerBreak: 2 }
+    );
+  `);
+  const plan = run(ctx, 'globalThis._plan11');
+  const counts = {};
+  for (const pid of pids(11)) counts[pid] = 0;
+  for (const pa of plan.periodAssignments) {
+    for (const pid of Object.values(pa.assignments)) counts[pid]++;
+  }
+  const vals = Object.values(counts);
+  const maxP = Math.max(...vals);
+  const minP = Math.min(...vals);
+  const fours = vals.filter(v => v === 4).length;
+  assert(maxP <= 4, `max periods <= 4 (got ${maxP})`);
+  assert(minP >= 2, `min periods >= 2 (got ${minP})`);
+  assertEqual(fours, 1, 'exactly one player forced to 4 periods');
+}
+
+suite('Engine — season fairness rotates forced overflow across games');
+{
+  // Same scenario as above, but one player (p01) already has a high season
+  // ratio (over-played) and another (p08) has a low ratio (under-played).
+  // The under-played player should bear the forced overflow, not the first-indexed.
+  const roster = makeRoster(11, ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST']);
+  const seasonStats = {};
+  for (const pid of pids(11)) {
+    seasonStats[pid] = {
+      gamesAttended: 6,
+      totalPeriodsAvailable: 24,
+      totalPeriodsPlayed: 18, // ratio 0.75 baseline
+      periodsByPosition: {},
+    };
+  }
+  seasonStats['p08'].totalPeriodsPlayed = 12; // under-played, ratio 0.5
+  seasonStats['p01'].totalPeriodsPlayed = 22; // over-played, ratio 0.917
+
+  run(ctx, `
+    globalThis._engOv = new RotationEngine(
+      ${JSON.stringify(roster)}, ${JSON.stringify(seasonStats)}
+    );
+  `);
+
+  // Count how often each pid is the 4-period player across multiple runs.
+  const overflowCounts = {};
+  for (const pid of pids(11)) overflowCounts[pid] = 0;
+  const RUNS = 20;
+  for (let t = 0; t < RUNS; t++) {
+    run(ctx, `
+      globalThis._planOv = globalThis._engOv.generateGamePlan(
+        '2026-04-15', ${JSON.stringify(pids(11))}, 4, false,
+        { maxSubsPerBreak: 2 }
+      );
+    `);
+    const plan = run(ctx, 'globalThis._planOv');
+    const c = {};
+    for (const pid of pids(11)) c[pid] = 0;
+    for (const pa of plan.periodAssignments) {
+      for (const pid of Object.values(pa.assignments)) c[pid]++;
+    }
+    for (const [pid, n] of Object.entries(c)) {
+      if (n === 4) overflowCounts[pid]++;
+    }
+  }
+  // p08 (lowest season ratio) should bear overflow most often; p01 (highest ratio) should never.
+  assertEqual(overflowCounts['p01'], 0, 'over-played player never takes forced overflow');
+  assert(overflowCounts['p08'] >= RUNS * 0.8,
+    `under-played player takes overflow most runs (got ${overflowCounts['p08']}/${RUNS})`);
+}
+
+suite('Engine — forced overflow rotates across runs when season stats are neutral');
+{
+  // Without season stats, jitter should cause overflow to land on different
+  // players across runs — not deterministically on the lowest-indexed player.
+  const roster = makeRoster(11, ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST']);
+  run(ctx, `
+    globalThis._engJit = new RotationEngine(${JSON.stringify(roster)}, {});
+  `);
+  const overflowCounts = {};
+  for (const pid of pids(11)) overflowCounts[pid] = 0;
+  const RUNS = 30;
+  for (let t = 0; t < RUNS; t++) {
+    run(ctx, `
+      globalThis._planJit = globalThis._engJit.generateGamePlan(
+        '2026-04-15', ${JSON.stringify(pids(11))}, 4, false,
+        { maxSubsPerBreak: 2 }
+      );
+    `);
+    const plan = run(ctx, 'globalThis._planJit');
+    const c = {};
+    for (const pid of pids(11)) c[pid] = 0;
+    for (const pa of plan.periodAssignments) {
+      for (const pid of Object.values(pa.assignments)) c[pid]++;
+    }
+    for (const [pid, n] of Object.entries(c)) {
+      if (n === 4) overflowCounts[pid]++;
+    }
+  }
+  const uniqueOverflowPids = Object.values(overflowCounts).filter(v => v > 0).length;
+  assert(uniqueOverflowPids >= 2,
+    `overflow rotates across ≥2 players over ${RUNS} runs (got ${uniqueOverflowPids})`);
 }

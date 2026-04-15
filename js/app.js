@@ -3645,17 +3645,6 @@ function printLineup() {
     return Array.isArray(slotVal) ? (slotVal[0] && slotVal[0].pid) : slotVal;
   };
 
-  // Precompute rotation groups: for each position, the set of pids that ever play it
-  const rotationByPos = {};
-  for (const pos of positions) {
-    const set = new Set();
-    for (let pi = 0; pi < numPeriods; pi++) {
-      const pid = pidAt(pi, pos);
-      if (pid) set.add(pid);
-    }
-    rotationByPos[pos] = set;
-  }
-
   // Render a player line (number + name)
   const renderPlayerLine = (pid, opts = {}) => {
     const p = roster.players[pid];
@@ -3666,19 +3655,19 @@ function printLineup() {
     return `<div class="${cls}">${arrow}<span class="num">${num}</span><span class="pname">${esc(p.name)}</span></div>`;
   };
 
-  // Position rows: starter on top, rotation partners (currently benched) below with ↑↓
+  // Position rows: starter on top, and (if not last period) the single player
+  // coming in next period for that position, marked with ↓
   let positionRows = '';
   for (const pos of positions) {
     let cells = `<td class="pos-cell">${esc(pos)}</td>`;
     for (let pi = 0; pi < numPeriods; pi++) {
-      const pa = plan.periodAssignments[pi];
       const starterPid = pidAt(pi, pos);
-      const benchSet = new Set(pa.bench || []);
-      const partners = [...rotationByPos[pos]].filter(pid => pid !== starterPid && benchSet.has(pid));
+      const nextPid = (pi < numPeriods - 1) ? pidAt(pi + 1, pos) : null;
+      const subPid = (nextPid && nextPid !== starterPid) ? nextPid : null;
 
       if (starterPid && roster.players[starterPid]) {
         let cell = renderPlayerLine(starterPid);
-        for (const pid of partners) cell += renderPlayerLine(pid, { sub: true });
+        if (subPid && roster.players[subPid]) cell += renderPlayerLine(subPid, { sub: true });
         cells += `<td>${cell}</td>`;
       } else {
         cells += '<td>\u2014</td>';
@@ -3687,13 +3676,24 @@ function printLineup() {
     positionRows += `<tr>${cells}</tr>`;
   }
 
-  // Bench row
+  // Bench row — bold players tagged to come in next period
   let benchCells = '<td class="pos-cell">Bench</td>';
   for (let pi = 0; pi < numPeriods; pi++) {
     const pa = plan.periodAssignments[pi];
+    // Pids that are on this period's bench and will be on the field next period
+    const comingIn = new Set();
+    if (pi < numPeriods - 1) {
+      const currentOnField = new Set(positions.map(p => pidAt(pi, p)).filter(Boolean));
+      for (const pos of positions) {
+        const nxt = pidAt(pi + 1, pos);
+        if (nxt && !currentOnField.has(nxt)) comingIn.add(nxt);
+      }
+    }
     const benchNames = (pa.bench || []).map(pid => {
       const p = roster.players[pid];
-      return p ? esc(p.name) : '?';
+      if (!p) return '?';
+      const name = esc(p.name);
+      return comingIn.has(pid) ? `<strong>${name}</strong>` : name;
     }).join(', ');
     benchCells += `<td class="bench-cell">${benchNames || '\u2014'}</td>`;
   }
@@ -3705,7 +3705,7 @@ function printLineup() {
     const p = roster.players[pid];
     if (!p) continue;
     const num = p.number || '';
-    summaryRows += `<tr><td>${esc(p.name)}</td><td class="num-col">${esc(num)}</td><td>${fmtPeriods(s.periodsPlayed)}/${plan.numPeriods}</td><td>${s.positions.join(', ')}</td></tr>`;
+    summaryRows += `<tr><td class="num-col">${esc(num)}</td><td>${esc(p.name)}</td><td>${fmtPeriods(s.periodsPlayed)}/${plan.numPeriods}</td><td>${s.positions.join(', ')}</td></tr>`;
   }
 
   const html = `<!DOCTYPE html>
@@ -3725,9 +3725,9 @@ function printLineup() {
   .bench-cell { font-size: 10px; color: #555; }
   .num { display: inline-block; width: 20px; font-weight: 600; color: #888; font-size: 10px; text-align: right; margin-right: 4px; }
   .starter-line { font-weight: 600; }
-  .sub-line { font-size: 10px; color: #666; padding-left: 10px; margin-top: 1px; }
+  .sub-line { font-size: 10px; color: #666; padding-left: 24px; margin-top: 1px; }
   .sub-line .num { color: #999; }
-  .sub-arrow { display: inline-block; width: 14px; color: #888; font-size: 10px; margin-right: 2px; }
+  .sub-arrow { display: inline-block; color: #888; font-size: 10px; margin-right: 2px; }
   .pname { }
   .summary { margin-top: 8px; }
   .summary th { text-align: left; }
@@ -3752,7 +3752,7 @@ function printLineup() {
 </table>
 
 <table class="summary">
-  <thead><tr><th>Player</th><th>#</th><th>Played</th><th>Positions</th></tr></thead>
+  <thead><tr><th>#</th><th>Player</th><th>Played</th><th>Positions</th></tr></thead>
   <tbody>${summaryRows}</tbody>
 </table>
 
