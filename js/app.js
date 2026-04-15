@@ -3639,18 +3639,47 @@ function printLineup() {
     periodHeaders += `<th>${periodLabel}${pa.period}</th>`;
   }
 
-  // Position rows: one row per position, cells = # + name for that period
+  // Helper: get pid at a position in a given period
+  const pidAt = (pi, pos) => {
+    const slotVal = plan.periodAssignments[pi].assignments[pos];
+    return Array.isArray(slotVal) ? (slotVal[0] && slotVal[0].pid) : slotVal;
+  };
+
+  // Precompute rotation groups: for each position, the set of pids that ever play it
+  const rotationByPos = {};
+  for (const pos of positions) {
+    const set = new Set();
+    for (let pi = 0; pi < numPeriods; pi++) {
+      const pid = pidAt(pi, pos);
+      if (pid) set.add(pid);
+    }
+    rotationByPos[pos] = set;
+  }
+
+  // Render a player line (number + name)
+  const renderPlayerLine = (pid, opts = {}) => {
+    const p = roster.players[pid];
+    if (!p) return '';
+    const num = p.number ? esc(p.number) : '';
+    const cls = opts.sub ? 'sub-line' : 'starter-line';
+    const arrow = opts.sub ? '<span class="sub-arrow">\u2191\u2193</span>' : '';
+    return `<div class="${cls}">${arrow}<span class="num">${num}</span><span class="pname">${esc(p.name)}</span></div>`;
+  };
+
+  // Position rows: starter on top, rotation partners (currently benched) below with ↑↓
   let positionRows = '';
   for (const pos of positions) {
     let cells = `<td class="pos-cell">${esc(pos)}</td>`;
     for (let pi = 0; pi < numPeriods; pi++) {
       const pa = plan.periodAssignments[pi];
-      const slotVal = pa.assignments[pos];
-      const pid = Array.isArray(slotVal) ? slotVal[0].pid : slotVal;
-      if (pid && roster.players[pid]) {
-        const p = roster.players[pid];
-        const num = p.number ? `<span class="num">${esc(p.number)}</span>` : '<span class="num"></span>';
-        cells += `<td>${num}${esc(p.name)}</td>`;
+      const starterPid = pidAt(pi, pos);
+      const benchSet = new Set(pa.bench || []);
+      const partners = [...rotationByPos[pos]].filter(pid => pid !== starterPid && benchSet.has(pid));
+
+      if (starterPid && roster.players[starterPid]) {
+        let cell = renderPlayerLine(starterPid);
+        for (const pid of partners) cell += renderPlayerLine(pid, { sub: true });
+        cells += `<td>${cell}</td>`;
       } else {
         cells += '<td>\u2014</td>';
       }
@@ -3695,6 +3724,11 @@ function printLineup() {
   .pos-cell { font-weight: 700; background: #f8f8f8; width: 40px; text-align: center; }
   .bench-cell { font-size: 10px; color: #555; }
   .num { display: inline-block; width: 20px; font-weight: 600; color: #888; font-size: 10px; text-align: right; margin-right: 4px; }
+  .starter-line { font-weight: 600; }
+  .sub-line { font-size: 10px; color: #666; padding-left: 10px; margin-top: 1px; }
+  .sub-line .num { color: #999; }
+  .sub-arrow { display: inline-block; width: 14px; color: #888; font-size: 10px; margin-right: 2px; }
+  .pname { }
   .summary { margin-top: 8px; }
   .summary th { text-align: left; }
   .num-col { text-align: center; width: 28px; }
