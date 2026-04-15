@@ -19,8 +19,10 @@ On top of the core fairness algorithm, the coach can apply optional constraints 
 - **Position pins** -- lock a player to a specific position for this game. Tap a player's name in the available list, pick a position. That player plays that position every period they're on the field. A hint and pin summary is always visible under the Available Players header. Use case: "Alex is our GK today."
 - **Position stickiness** -- reduce position changes between periods (Off / Medium / High). Use case: "Stop moving kids every 8 minutes, let them settle in."
 - **Special position max** -- cap how many periods any player can play the first position (GK, G, etc.). Use case: "No kid plays goalkeeper more than once." Only appears for sports with a designated special position (soccer, hockey, lacrosse).
-- **Global max periods per player** -- cap how many total periods any player can play, regardless of position. Use case: "No player plays more than 3 of 4 quarters." Works with any sport.
-- **Max subs per break** -- cap how many players can be subbed out between consecutive periods. Use case: "I've got 14 kids and only want to swap 2 at a time so the game keeps flowing." Defaults to Any. Sub-cap wins over equal-time when they conflict (a single game may look uneven; the season averages it out). Soft-relaxes if prior-period players have all hit their game/position caps.
+- **Global max periods per player** -- cap how many total periods any player can play, regardless of position. Use case: "No player plays more than 3 of 4 quarters." Works with any sport. Treated as a hard cap — the engine relaxes the sub cap before exceeding this value.
+- **Max subs per break** -- cap how many players can be subbed out between consecutive periods. Use case: "I've got 14 kids and only want to swap 2 at a time so the game keeps flowing." Defaults to Any. Soft constraint: may force a player past their equal-time share to keep the roster stable, and relaxes automatically when the hold-over pool exhausts against the Max Periods cap. When it forces overflow, the player with the lowest season-ratio is chosen first so overflow rotates across games.
+
+**Constraint precedence** (when over-constrained): fully staff every period → honor Max Periods → relax Max Subs as needed → equal playing time → relax Max Periods only as a last resort if no valid plan exists.
 
 All constraints default to off (or to the values set in Settings). When off, behavior is identical to the original algorithm. Post-generation tap-to-swap is always available for manual adjustments.
 

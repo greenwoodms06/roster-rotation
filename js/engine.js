@@ -8,9 +8,22 @@
  *   continuity: 0|1|2              -- 0=off, 1=medium, 2=high position stickiness
  *   positionMax: { pos: number }   -- max periods any player can play a given position
  *   specialPosMax: null|number     -- DEPRECATED, converted to positionMax for positions[0]
+ *   globalMaxPeriods: null|number  -- hard cap: no player exceeds this many periods.
+ *                                     Relaxed only as last resort to keep periods fully staffed.
  *   maxSubsPerBreak: null|number   -- max subs out between consecutive periods (null = no limit).
- *                                     Soft constraint: relaxes if hold-over pool is exhausted
- *                                     (e.g., all prior players hit globalMaxPeriods cap).
+ *                                     Soft: relaxes to honor globalMaxPeriods when a break's
+ *                                     hold-over pool is exhausted against the cap.
+ *
+ * Constraint precedence (when conflicting):
+ *   1. Fill every slot                       (non-negotiable)
+ *   2. globalMaxPeriods                      (hard cap)
+ *   3. maxSubsPerBreak                       (soft; relaxes to honor #2)
+ *   4. Equal playing time                    (may be exceeded by forced holdovers under K)
+ *   5. globalMaxPeriods — last resort        (relaxed only if #1 is otherwise impossible)
+ *
+ * Forced-overflow tie-breaking: when the sub cap forces a player to hold over past
+ * their equal-time quota, the player with the lowest season-ratio is preferred, so
+ * overflow rotates across games rather than landing on the same player every time.
  */
 
 class RotationEngine {

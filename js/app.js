@@ -1811,7 +1811,7 @@ function renderConstraintControls() {
   const msMinusDisabled = gameMaxSubsPerBreak === 0;
   const msPlusDisabled = gameMaxSubsPerBreak === null;
   html += '<div class="constraint-row">';
-  html += '<div class="constraint-label">Max subs / break<div class="constraint-sublabel">Limit roster changes between periods</div></div>';
+  html += '<div class="constraint-label">Max subs / break<div class="constraint-sublabel">Limit roster changes between periods — auto-relaxes to honor Max periods</div></div>';
   html += renderStepperHtml({
     minusFn: 'bumpMaxSubsPerBreak(-1)',
     plusFn: 'bumpMaxSubsPerBreak(1)',
