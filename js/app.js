@@ -2431,53 +2431,98 @@ function togglePlayerSummary() {
 function addPeriodToPlan() {
   if (!currentPlan || !ctx || !roster) return;
   const oldNumPeriods = currentPlan.numPeriods;
-
   const allPids = currentPlan.availablePlayers;
-  const locks = Object.entries(gameLocks)
-    .filter(([pid]) => allPids.includes(pid))
-    .map(([pid, position]) => ({ pid, position }));
-  const constraints = {
-    locks,
-    continuity: gameContinuity,
-    positionMax: gamePositionMax,
-    globalMaxPeriods: gameGlobalMaxPeriods,
-    maxSubsPerBreak: gameMaxSubsPerBreak,
+  const positions = roster.positions || [];
+
+  const doAdd = () => {
+    const locks = Object.entries(gameLocks)
+      .filter(([pid]) => allPids.includes(pid))
+      .map(([pid, position]) => ({ pid, position }));
+    const constraints = {
+      locks,
+      continuity: gameContinuity,
+      positionMax: gamePositionMax,
+      globalMaxPeriods: gameGlobalMaxPeriods,
+      maxSubsPerBreak: gameMaxSubsPerBreak,
+    };
+
+    const stats = Storage.getSeasonStats(ctx.teamSlug, ctx.seasonSlug);
+    const engine = new RotationEngine(roster, stats);
+
+    try {
+      currentPlan.numPeriods = oldNumPeriods + 1;
+      const rebalanced = engine.rebalanceFromPeriod(
+        currentPlan, oldNumPeriods, [], constraints, []
+      );
+      rebalanced.periodAssignments = rebalanced.periodAssignments.map(pa => ({
+        ...pa,
+        assignments: wrapEngineOutput(pa.assignments),
+      }));
+      rebalanced.gameId = currentPlan.gameId;
+      rebalanced.notes = currentPlan.notes || '';
+      rebalanced.label = currentPlan.label || '';
+      rebalanced.score = currentPlan.score || {};
+      if (currentPlan.exhibition) rebalanced.exhibition = true;
+
+      currentPlan = rebalanced;
+      Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
+      swapSelection = null;
+      swapHighlight = null;
+      renderLineup();
+      renderSeason();
+      showToast(`${getPeriodLabel(currentPlan.numPeriods)} ${currentPlan.numPeriods} added`, 'success');
+    } catch (e) {
+      currentPlan.numPeriods = oldNumPeriods;
+      showModal({
+        title: 'Cannot Add Period',
+        message: e.message,
+        cancelLabel: null,
+        onConfirm: () => {}
+      });
+    }
   };
 
-  const stats = Storage.getSeasonStats(ctx.teamSlug, ctx.seasonSlug);
-  const engine = new RotationEngine(roster, stats);
-
-  try {
-    currentPlan.numPeriods = oldNumPeriods + 1;
-    const rebalanced = engine.rebalanceFromPeriod(
-      currentPlan, oldNumPeriods, [], constraints, []
-    );
-    rebalanced.periodAssignments = rebalanced.periodAssignments.map(pa => ({
-      ...pa,
-      assignments: wrapEngineOutput(pa.assignments),
-    }));
-    rebalanced.gameId = currentPlan.gameId;
-    rebalanced.notes = currentPlan.notes || '';
-    rebalanced.label = currentPlan.label || '';
-    rebalanced.score = currentPlan.score || {};
-    if (currentPlan.exhibition) rebalanced.exhibition = true;
-
-    currentPlan = rebalanced;
-    Storage.saveGame(ctx.teamSlug, ctx.seasonSlug, currentPlan);
-    swapSelection = null;
-    swapHighlight = null;
-    renderLineup();
-    renderSeason();
-    showToast(`${getPeriodLabel(currentPlan.numPeriods)} ${currentPlan.numPeriods} added`, 'success');
-  } catch (e) {
-    currentPlan.numPeriods = oldNumPeriods;
-    showModal({
-      title: 'Cannot Add Period',
-      message: e.message,
-      cancelLabel: null,
-      onConfirm: () => {}
-    });
+  // Pre-check: if Max Periods / Player is set, see if the new period can be
+  // filled without exceeding it. A new period needs `positions.length` players
+  // who haven't hit the cap. If too few are available, prompt the coach to
+  // raise the cap by 1 rather than throw a cryptic error.
+  if (gameGlobalMaxPeriods != null) {
+    const played = {};
+    for (const pid of allPids) played[pid] = 0;
+    for (const pa of currentPlan.periodAssignments) {
+      for (const val of Object.values(pa.assignments)) {
+        if (Array.isArray(val)) {
+          for (const e of val) {
+            played[e.pid] = (played[e.pid] || 0) + (e.timeOut - e.timeIn);
+          }
+        } else if (val) {
+          played[val] = (played[val] || 0) + 1;
+        }
+      }
+    }
+    let availCap = 0;
+    for (const pid of allPids) {
+      availCap += Math.max(0, Math.min(1, gameGlobalMaxPeriods - (played[pid] || 0)));
+    }
+    if (availCap < positions.length) {
+      const oldCap = gameGlobalMaxPeriods;
+      const newCap = oldCap + 1;
+      const pLabel = getPeriodLabel(oldNumPeriods + 1);
+      showModal({
+        title: 'Raise Max Periods?',
+        message: `Adding ${pLabel} ${oldNumPeriods + 1} would require players past the current ${oldCap}-${pLabel.toLowerCase()} cap. Raise Max Periods / Player to ${newCap} and add?`,
+        confirmLabel: 'Raise & Add',
+        onConfirm: () => {
+          gameGlobalMaxPeriods = newCap;
+          renderConstraintControls();
+          doAdd();
+        }
+      });
+      return;
+    }
   }
+
+  doAdd();
 }
 
 function deleteCurrentGame() {
@@ -2631,36 +2676,35 @@ function openRebalanceModal(fromPeriodIdx) {
 
   const numPeriods = currentPlan.numPeriods;
   const periodLabel = getPeriodLabel(numPeriods);
-
-  // Build list of which periods to freeze vs regenerate
-  const frozenLabels = [];
-  for (let i = 0; i < fromPeriodIdx; i++) {
-    frozenLabels.push(`${periodLabel} ${i + 1}`);
-  }
-  const regenLabels = [];
-  for (let i = fromPeriodIdx; i < numPeriods; i++) {
-    regenLabels.push(`${periodLabel} ${i + 1}`);
-  }
+  const periodLabelPlural = getPeriodLabelPlural(numPeriods);
 
   // Check if any regenerated periods have goals
   let hasGoals = false;
   for (let i = fromPeriodIdx; i < numPeriods; i++) {
     const pa = currentPlan.periodAssignments[i];
     if (currentPlan.score) {
-      // Check player goals in this period
       for (const pid of extractPidsFromAssignments(pa.assignments)) {
         if ((currentPlan.score.playerGoals?.[pid]?.[i] || 0) > 0) {
           hasGoals = true;
           break;
         }
       }
-      // Check opponent goals
       if ((currentPlan.score.oppGoals?.[i] || 0) > 0) hasGoals = true;
     }
     if (hasGoals) break;
   }
 
-  let message = `${frozenLabels.join(', ')} will keep their assignments.\n${regenLabels.join(', ')} will be regenerated.`;
+  const rangeText = (start, end) =>
+    start === end ? `${periodLabel} ${start}` : `${periodLabelPlural} ${start}\u2013${end}`;
+
+  let message;
+  if (fromPeriodIdx === 0) {
+    message = `All ${periodLabelPlural.toLowerCase()} will be regenerated.`;
+  } else {
+    const kept = rangeText(1, fromPeriodIdx);
+    const regen = rangeText(fromPeriodIdx + 1, numPeriods);
+    message = `Keeping ${kept}. Regenerating ${regen}.`;
+  }
   if (hasGoals) {
     message += '\n\nGoals recorded in regenerated periods will be cleared.';
   }
@@ -3689,13 +3733,16 @@ function printLineup() {
         if (nxt && !currentOnField.has(nxt)) comingIn.add(nxt);
       }
     }
-    const benchNames = (pa.bench || []).map(pid => {
+    const benchLines = (pa.bench || []).map(pid => {
       const p = roster.players[pid];
-      if (!p) return '?';
+      if (!p) return '<div class="bench-name">?</div>';
       const name = esc(p.name);
-      return comingIn.has(pid) ? `<strong>${name}</strong>` : name;
-    }).join(', ');
-    benchCells += `<td class="bench-cell">${benchNames || '\u2014'}</td>`;
+      if (comingIn.has(pid)) {
+        return `<div class="bench-name bench-in"><strong>${name}</strong> <span class="bench-arrow">\u2191</span></div>`;
+      }
+      return `<div class="bench-name">${name}</div>`;
+    }).join('');
+    benchCells += `<td class="bench-cell">${benchLines || '\u2014'}</td>`;
   }
 
   // Player summary table
@@ -3722,7 +3769,10 @@ function printLineup() {
   th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; font-size: 11px; }
   th { background: #f0f0f0; font-weight: 700; text-align: center; }
   .pos-cell { font-weight: 700; background: #f8f8f8; width: 40px; text-align: center; }
-  .bench-cell { font-size: 10px; color: #555; }
+  .bench-cell { font-size: 10px; color: #555; vertical-align: top; }
+  .bench-name { line-height: 1.35; }
+  .bench-in { color: #000; }
+  .bench-arrow { color: #000; font-weight: 700; font-size: 11px; }
   .num { display: inline-block; width: 20px; font-weight: 600; color: #888; font-size: 10px; text-align: right; margin-right: 4px; }
   .starter-line { font-weight: 600; }
   .sub-line { font-size: 10px; color: #666; padding-left: 24px; margin-top: 1px; }

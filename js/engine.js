@@ -17,13 +17,23 @@
  * Constraint precedence (when conflicting):
  *   1. Fill every slot                       (non-negotiable)
  *   2. globalMaxPeriods                      (hard cap)
- *   3. maxSubsPerBreak                       (soft; relaxes to honor #2)
- *   4. Equal playing time                    (may be exceeded by forced holdovers under K)
- *   5. globalMaxPeriods — last resort        (relaxed only if #1 is otherwise impossible)
+ *   3. Equal playing time                    (may be exceeded by forced holdovers under K)
+ *   4. Fatigue / rest spread                 (no player's longest consec plays or sits
+ *                                              worsened by the sub-cap post-repair)
+ *   5. maxSubsPerBreak                       (soft; relaxes to honor #2, #3, and #4)
+ *   6. globalMaxPeriods — last resort        (relaxed only if #1 is otherwise impossible)
  *
  * Forced-overflow tie-breaking: when the sub cap forces a player to hold over past
  * their equal-time quota, the player with the lowest season-ratio is preferred, so
  * overflow rotates across games rather than landing on the same player every time.
+ *
+ * Post-repair passes run after Phase 2 scheduling:
+ *   1. _repairAllocation — fixes equal-time violations via 1- and 2-chain swaps
+ *      within a single period (preserving sub cap).
+ *   2. _reduceSubCapViolations — reduces sub-cap violations via 2-swaps across
+ *      two periods (preserving per-player counts, so equal time stays intact).
+ *      Only applied when a feasible reduction exists; no break is ever pushed
+ *      above its baseline, and genuinely infeasible overflow is left as-is.
  */
 
 class RotationEngine {
@@ -71,10 +81,11 @@ class RotationEngine {
     const periodRosters = this._schedulePeriods(
       availableIds, periodsPerPlayer, numPeriods, firstAvailableStart, [], maxSubsPerBreak, globalMaxPeriods
     );
+    const startPeriodForRepair = firstAvailableStart ? 1 : 0;
     this._repairAllocation(
-      periodRosters, periodsPerPlayer, maxSubsPerBreak,
-      firstAvailableStart ? 1 : 0
+      periodRosters, periodsPerPlayer, maxSubsPerBreak, startPeriodForRepair
     );
+    this._reduceSubCapViolations(periodRosters, maxSubsPerBreak, startPeriodForRepair);
 
     const gamePositionCounts = {};
     availableIds.forEach(pid => (gamePositionCounts[pid] = {}));
@@ -507,6 +518,122 @@ class RotationEngine {
     }
   }
 
+  /**
+   * Post-repair: reduce maxSubsPerBreak violations via 2-swaps. A 2-swap moves
+   * player A from period P1 to P2 while moving player B from P2 to P1, which
+   * preserves per-player period counts (and therefore equal-time allocation,
+   * season-fairness targets, and globalMaxPeriods). Only applied when a
+   * feasible reduction exists without creating new violations elsewhere or
+   * degrading any player's fatigue/rest profile.
+   *
+   * Budget rule per candidate swap: worst-violating break must strictly
+   * decrease, AND no break may end up above max(baseline[p], K). Breaks
+   * already over K (genuine infeasibility, e.g. forced overflow with hard
+   * cap) are never pushed higher; breaks at/below K stay at/below K.
+   *
+   * Fatigue guard: reject any swap that extends either swapped player's
+   * longest consecutive-plays streak OR longest consecutive-sits streak by
+   * more than 1 period relative to the pre-swap state. A +1 tolerance lets
+   * the post-repair trade a small spacing regression for a sub-cap win
+   * (typical: 3→4 consec in exchange for one fewer sub at a break), while
+   * still blocking large bunches (+2 or more).
+   *
+   * Mutates periodRosters in place.
+   */
+  _reduceSubCapViolations(periodRosters, maxSubsPerBreak, startPeriod = 0) {
+    if (maxSubsPerBreak == null) return;
+    const numPeriods = periodRosters.length;
+    if (numPeriods < 2) return;
+
+    const rosterSets = periodRosters.map(r => new Set(r));
+    const subsAt = (p) => {
+      if (p < 0 || p >= numPeriods - 1) return 0;
+      const a = rosterSets[p], b = rosterSets[p + 1];
+      let n = 0;
+      for (const x of a) if (!b.has(x)) n++;
+      return n;
+    };
+
+    const apply2Swap = (P1, pid1, P2, pid2) => {
+      rosterSets[P1].delete(pid1); rosterSets[P1].add(pid2);
+      rosterSets[P2].delete(pid2); rosterSets[P2].add(pid1);
+      const i1 = periodRosters[P1].indexOf(pid1);
+      periodRosters[P1][i1] = pid2;
+      const i2 = periodRosters[P2].indexOf(pid2);
+      periodRosters[P2][i2] = pid1;
+    };
+
+    // Longest consecutive plays and longest consecutive sits for a player,
+    // scanning every period. Used by the fatigue guard.
+    const fatigueMetrics = (pid) => {
+      let maxPlay = 0, maxSit = 0, curPlay = 0, curSit = 0;
+      for (let p = 0; p < numPeriods; p++) {
+        if (rosterSets[p].has(pid)) {
+          curPlay++; curSit = 0;
+          if (curPlay > maxPlay) maxPlay = curPlay;
+        } else {
+          curSit++; curPlay = 0;
+          if (curSit > maxSit) maxSit = curSit;
+        }
+      }
+      return { maxPlay, maxSit };
+    };
+
+    const breakLo = Math.max(0, startPeriod - 1);
+    let guard = 0;
+    const maxIter = numPeriods * numPeriods;
+    while (guard++ < maxIter) {
+      let worstBreak = -1, worstSubs = maxSubsPerBreak;
+      for (let p = breakLo; p < numPeriods - 1; p++) {
+        const s = subsAt(p);
+        if (s > worstSubs) { worstSubs = s; worstBreak = p; }
+      }
+      if (worstBreak === -1) break;
+
+      const baseline = [];
+      for (let p = breakLo; p < numPeriods - 1; p++) baseline.push(subsAt(p));
+
+      let improved = false;
+      outer:
+      for (let P1 = startPeriod; P1 < numPeriods; P1++) {
+        const p1List = periodRosters[P1].slice();
+        for (const pid1 of p1List) {
+          const pre1 = fatigueMetrics(pid1);
+          for (let P2 = P1 + 1; P2 < numPeriods; P2++) {
+            if (rosterSets[P2].has(pid1)) continue;
+            const p2List = periodRosters[P2].slice();
+            for (const pid2 of p2List) {
+              if (rosterSets[P1].has(pid2)) continue;
+              const pre2 = fatigueMetrics(pid2);
+              apply2Swap(P1, pid1, P2, pid2);
+              let ok = subsAt(worstBreak) < worstSubs;
+              if (ok) {
+                for (let p = breakLo; p < numPeriods - 1; p++) {
+                  const budget = Math.max(baseline[p - breakLo], maxSubsPerBreak);
+                  if (subsAt(p) > budget) { ok = false; break; }
+                }
+              }
+              if (ok) {
+                const post1 = fatigueMetrics(pid1);
+                const post2 = fatigueMetrics(pid2);
+                const slack = 1;
+                if (post1.maxPlay > pre1.maxPlay + slack ||
+                    post1.maxSit > pre1.maxSit + slack ||
+                    post2.maxPlay > pre2.maxPlay + slack ||
+                    post2.maxSit > pre2.maxSit + slack) {
+                  ok = false;
+                }
+              }
+              if (ok) { improved = true; break outer; }
+              apply2Swap(P1, pid2, P2, pid1);
+            }
+          }
+        }
+      }
+      if (!improved) break;
+    }
+  }
+
   // -- Phase 3: Position Assignment ---------------------------------
 
   _assignPositions(periodPlayers, gamePositionCounts, opts = {}) {
@@ -838,6 +965,7 @@ class RotationEngine {
     // Skip period 0 in rebalance: that boundary adjoins the last frozen
     // period, which _repairAllocation doesn't currently model.
     this._repairAllocation(periodRosters, periodsPerPlayer, maxSubsPerBreak, 1);
+    this._reduceSubCapViolations(periodRosters, maxSubsPerBreak, 1);
 
     // Step 6: Assign positions (Phase 3), seeding from frozen data
     const gamePositionCounts = {};

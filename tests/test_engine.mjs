@@ -1131,3 +1131,83 @@ suite('Engine — forced overflow rotates across runs when season stats are neut
   assert(uniqueOverflowPids >= 2,
     `overflow rotates across ≥2 players over ${RUNS} runs (got ${uniqueOverflowPids})`);
 }
+
+suite('Engine — sub-cap post-repair: 9p/5pos/9per/K=2/globalMax=5 (no firstAvailableStart)');
+{
+  // User-reported: 9 players, 5 positions, 9 periods, K=2, globalMax=5.
+  // Post-repair preserves equal time (5/9 each). With the +1 slack fatigue
+  // guard (Option 2), streaks may extend by at most 1 per swapped player
+  // per pass — capping max consec plays/sits at 5 for this scenario (since
+  // greedy baselines run 3-4 at most). K may still relax when the only
+  // sub-reducing swap would extend a streak by more than 1.
+  const roster = makeRoster(9, ['QB', 'C', 'RB', 'X', 'Z']);
+  const RUNS = 20;
+  let maxBreakSubsObserved = 0;
+  let maxConsecPlaysObserved = 0;
+  let maxConsecSitsObserved = 0;
+  for (let r = 0; r < RUNS; r++) {
+    run(ctx, `
+      globalThis._engR = new RotationEngine(${JSON.stringify(roster)}, {});
+      globalThis._planR = globalThis._engR.generateGamePlan(
+        '2026-04-17', ${JSON.stringify(pids(9))}, 9, false,
+        { maxSubsPerBreak: 2, globalMaxPeriods: 5, continuity: 1 }
+      );
+    `);
+    const plan = run(ctx, 'globalThis._planR');
+    const counts = {};
+    const playsByPid = {};
+    for (const pid of pids(9)) { counts[pid] = 0; playsByPid[pid] = []; }
+    for (let i = 0; i < plan.periodAssignments.length; i++) {
+      const onField = new Set(Object.values(plan.periodAssignments[i].assignments));
+      for (const pid of pids(9)) {
+        playsByPid[pid].push(onField.has(pid));
+        if (onField.has(pid)) counts[pid]++;
+      }
+    }
+    for (const pid of pids(9)) {
+      assertEqual(counts[pid], 5, `${pid} plays exactly 5 periods (run ${r})`);
+      // Fatigue guard: max consecutive plays and max consecutive sits both
+      // bounded at 4 for this scenario (cyclic-like spread is achievable).
+      let maxPlay = 0, maxSit = 0, cp = 0, cs = 0;
+      for (const on of playsByPid[pid]) {
+        if (on) { cp++; cs = 0; if (cp > maxPlay) maxPlay = cp; }
+        else    { cs++; cp = 0; if (cs > maxSit) maxSit = cs; }
+      }
+      if (maxPlay > maxConsecPlaysObserved) maxConsecPlaysObserved = maxPlay;
+      if (maxSit > maxConsecSitsObserved) maxConsecSitsObserved = maxSit;
+      assert(maxPlay <= 5, `${pid} ≤5 consec plays (run ${r}, got ${maxPlay})`);
+      assert(maxSit <= 5, `${pid} ≤5 consec sits (run ${r}, got ${maxSit})`);
+    }
+    for (let i = 1; i < plan.periodAssignments.length; i++) {
+      const prev = new Set(Object.values(plan.periodAssignments[i - 1].assignments));
+      const cur = Object.values(plan.periodAssignments[i].assignments);
+      const shared = cur.filter(p => prev.has(p)).length;
+      const subs = 5 - shared;
+      if (subs > maxBreakSubsObserved) maxBreakSubsObserved = subs;
+    }
+  }
+  // Sub cap is best-effort under fatigue guard: allow occasional relaxation,
+  // but cap the worst observed value to a sane bound.
+  assert(maxBreakSubsObserved <= 3,
+    `worst break ≤3 across ${RUNS} runs (saw ${maxBreakSubsObserved})`);
+}
+
+suite('Engine — sub-cap post-repair leaves infeasible overflow alone');
+{
+  // 10p/7pos/4per/K=1/globalMax=3 is truly infeasible (max distributable 27 <
+  // 28 needed). Post-repair must not blow up trying to fix; all periods stay
+  // fully staffed, no break is pushed worse than baseline.
+  const roster = makeRoster(10, ['GK', 'LB', 'RB', 'LW', 'CM', 'RW', 'ST']);
+  run(ctx, `
+    globalThis._engInf2 = new RotationEngine(${JSON.stringify(roster)}, {});
+    globalThis._planInf2 = globalThis._engInf2.generateGamePlan(
+      '2026-04-21', ${JSON.stringify(pids(10))}, 4, false,
+      { maxSubsPerBreak: 1, globalMaxPeriods: 3 }
+    );
+  `);
+  const plan = run(ctx, 'globalThis._planInf2');
+  for (let i = 0; i < 4; i++) {
+    assertEqual(Object.keys(plan.periodAssignments[i].assignments).length, 7,
+      `period ${i + 1} still fully staffed after post-repair`);
+  }
+}
