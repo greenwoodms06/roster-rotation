@@ -20,6 +20,8 @@ const ASSETS = [
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './fonts/dm-sans-latin.woff2',
+  './fonts/jetbrains-mono-latin.woff2',
 ];
 
 self.addEventListener('install', (e) => {

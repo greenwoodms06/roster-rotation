@@ -3987,7 +3987,10 @@ document.addEventListener('keydown', (e) => {
 // -- PWA Registration -----------------------------------------------
 // Skip on native Capacitor: iOS WKWebView has no SW support, and Android
 // WebView registration fails under capacitor://. Native builds ship bundled.
-if ('serviceWorker' in navigator && Platform.isWeb()) {
+// Skip under automation (Playwright etc.): the first-install clients.claim()
+// fires controllerchange → window.location.reload(), which races with the
+// test runner's page.evaluate and destroys the execution context.
+if ('serviceWorker' in navigator && Platform.isWeb() && !navigator.webdriver) {
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
     // SW already waiting from a previous visit
     if (reg.waiting) {
