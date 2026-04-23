@@ -146,6 +146,7 @@ export function createContext(opts = {}) {
   // Load files in order
   const files = ['js/formations.js', 'js/credit.js', 'js/storage_adapter.js', 'js/storage.js', 'js/engine.js'];
   if (opts.withApp) {
+    files.push('js/platform.js');
     files.push('js/utils.js');
     files.push('js/fairness.js');
     files.push('js/clock.js');

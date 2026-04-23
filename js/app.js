@@ -415,6 +415,13 @@ function init() {
     };
   }
 
+  // On native (Capacitor), remove store-policy-sensitive UI before render:
+  // donate links violate Play's payments policy; popup Print doesn't work
+  // in a WebView. Both stay for the PWA.
+  if (Platform.isNative()) {
+    document.getElementById('donateWrap')?.remove();
+  }
+
   // Apply theme before anything renders
   const settings = loadSettings();
   applyTheme(settings.theme);
@@ -2267,7 +2274,7 @@ function renderLineup() {
     <div class="lu-btn-left"><div class="scrimmage-toggle" onclick="toggleScrimmage()" title="Exclude from season stats"><div class="check${plan.exhibition ? ' checked' : ''}" id="scrimmageCheck"></div><span>Scrimmage</span></div></div>
     <div class="lu-btn-right">
       <button class="lu-btn" onclick="shareLineup()">Share</button>
-      <button class="lu-btn" onclick="printLineup()">Print</button>
+      ${Platform.isWeb() ? '<button class="lu-btn" onclick="printLineup()">Print</button>' : ''}
       <button class="lu-btn" onclick="deleteCurrentGame()">Delete</button>
     </div>
   </div>`;
@@ -3980,7 +3987,7 @@ document.addEventListener('keydown', (e) => {
 // -- PWA Registration -----------------------------------------------
 // Skip on native Capacitor: iOS WKWebView has no SW support, and Android
 // WebView registration fails under capacitor://. Native builds ship bundled.
-if ('serviceWorker' in navigator && !window.Capacitor?.isNativePlatform?.()) {
+if ('serviceWorker' in navigator && Platform.isWeb()) {
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
     // SW already waiting from a previous visit
     if (reg.waiting) {
@@ -4054,6 +4061,8 @@ function applyUpdate() {
 let _deferredInstallPrompt = null;
 
 window.addEventListener('beforeinstallprompt', (e) => {
+  // Native Capacitor builds install via the store, not this web flow.
+  if (Platform.isNative()) return;
   e.preventDefault();
   _deferredInstallPrompt = e;
 

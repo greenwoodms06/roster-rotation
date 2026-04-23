@@ -1,0 +1,15 @@
+# Default: treat as text, normalize to LF on check-in and check-out.
+# Prevents CRLF/LF churn between Windows/WSL/Linux/macOS contributors.
+* text=auto eol=lf
+
+# Known binaries — skip line-ending conversion.
+*.png binary
+*.PNG binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
