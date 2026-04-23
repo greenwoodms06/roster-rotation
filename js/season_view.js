@@ -270,13 +270,12 @@ function renderSeasonGames(games) {
     ].filter(Boolean).join('  \u2022  ');
     html += `
       <div class="game-history-item">
-        <div style="flex:1;min-width:0">
+        <button type="button" class="game-history-tap" onclick="openGameHistoryPopup('${gidEsc}')">
           <div style="font-weight:600">${g.date}${gnLabel}${gLabel}</div>
           <div class="text-sm text-muted">${detailLine}</div>
-        </div>
+        </button>
         ${wldHtml}
         <span class="fairness-badge" style="color:${fsColor};border-color:${fsColor}" title="Spread: max periods played minus min">\u00B1${Math.round(spread)}</span>
-        <button class="btn-ghost text-sm" onclick="viewPastGame('${gidEsc}')" style="color:var(--accent)">View</button>
       </div>
     `;
   }
@@ -448,4 +447,138 @@ function openGamePicker() {
     </div>
   `;
   document.body.appendChild(overlay);
+}
+
+// -- Game history popup (Season tab) -------------------------------
+function openGameHistoryPopup(gameId) {
+  if (!ctx) return;
+  const games = Storage.loadAllGames(ctx.teamSlug, ctx.seasonSlug);
+  const game = games.find(g => g.gameId === gameId);
+  if (!game) return;
+
+  const gnLabel = getGameNumLabel(game);
+  const gLabelStr = game.label ? ` — ${game.label}` : '';
+  const title = `${game.date}${gnLabel}${gLabelStr}`;
+  const pLabel = getPeriodLabelPlural(game.numPeriods);
+  const spread = gameFairnessSpread(game);
+  const fsColor = fairnessSpreadColor(spread);
+  const scoreStr = hasScoreData(game) ? `${getTotalTeamGoals(game)}-${getTotalOppGoals(game)}` : '';
+  const result = game.exhibition ? null : getGameResult(game);
+
+  let pillsHtml = '';
+  if (result) {
+    const wc = wldColor(result);
+    pillsHtml += `<span class="wld-pill" style="color:${wc};border-color:${wc}">${result}</span>`;
+  }
+  if (game.exhibition) {
+    pillsHtml += `<span class="wld-pill" style="color:var(--fg2);border-color:var(--border)">SCR</span>`;
+  }
+  if (scoreStr) {
+    pillsHtml += `<span class="wld-pill" style="color:var(--fg);border-color:var(--border)">${scoreStr}</span>`;
+  }
+  pillsHtml += `<span class="fairness-badge" style="color:${fsColor};border-color:${fsColor}" title="Spread: max periods played minus min">±${Math.round(spread)}</span>`;
+
+  const summary = getPlayerSummary(game);
+  const pids = game.availablePlayers.slice().sort((a, b) => {
+    const na = roster?.players?.[a]?.name || a;
+    const nb = roster?.players?.[b]?.name || b;
+    return na.localeCompare(nb);
+  });
+  let rowsHtml = '';
+  for (const pid of pids) {
+    const p = roster?.players?.[pid];
+    const name = p ? esc(p.name) : esc(pid);
+    const num = p && p.number ? `<span class="gh-pnum">#${esc(String(p.number))}</span>` : '';
+    const s = summary[pid];
+    const periods = s ? s.periodsPlayed : 0;
+    const posList = s ? [...new Set(s.positions)].join(', ') : '';
+    rowsHtml += `
+      <div class="gh-player-row">
+        <div class="gh-player-name">${name}${num}</div>
+        <div class="gh-player-periods">${fmtPeriods(periods)}/${game.numPeriods}</div>
+        <div class="gh-player-pos text-muted">${esc(posList)}</div>
+      </div>
+    `;
+  }
+
+  const gidEsc = esc(gameId).replace(/'/g, "\\'");
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'gameHistoryModal';
+  overlay.onclick = (e) => { if (e.target === overlay) closeDynamicModal('gameHistoryModal'); };
+  overlay.innerHTML = `
+    <div class="modal" role="dialog" aria-label="Game details" aria-modal="true">
+      <h2><span>${esc(title)}</span><button class="close-btn" onclick="closeDynamicModal('gameHistoryModal')" aria-label="Close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button></h2>
+      <div class="gh-meta">${pillsHtml}<span class="text-muted">${game.availablePlayers.length} players · ${game.numPeriods} ${pLabel}</span></div>
+      <div class="gh-players-header">
+        <div>Player</div><div>${pLabel}</div><div>Positions</div>
+      </div>
+      <div class="gh-players">${rowsHtml}</div>
+      <div class="gh-actions">
+        <button class="lu-btn gh-action-primary" onclick="gameHistoryOpen('${gidEsc}')">Open in Lineup</button>
+        <button class="lu-btn" onclick="gameHistoryShare('${gidEsc}')">Share</button>
+        <button class="lu-btn" onclick="gameHistoryPrint('${gidEsc}')">Print</button>
+        <button class="lu-btn gh-action-danger" onclick="gameHistoryDelete('${gidEsc}')">Delete</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function _gameHistoryLookup(gameId) {
+  if (!ctx) return null;
+  const games = Storage.loadAllGames(ctx.teamSlug, ctx.seasonSlug);
+  return games.find(g => g.gameId === gameId) || null;
+}
+
+function gameHistoryOpen(gameId) {
+  const game = _gameHistoryLookup(gameId);
+  if (!game) return;
+  currentPlan = game;
+  renderLineup();
+  closeDynamicModal('gameHistoryModal');
+  document.querySelectorAll('nav button')[2].click();
+}
+
+function gameHistoryShare(gameId) {
+  const game = _gameHistoryLookup(gameId);
+  if (!game) return;
+  closeDynamicModal('gameHistoryModal');
+  shareLineup(game);
+}
+
+function gameHistoryPrint(gameId) {
+  const game = _gameHistoryLookup(gameId);
+  if (!game) return;
+  closeDynamicModal('gameHistoryModal');
+  printLineup(game);
+}
+
+function gameHistoryDelete(gameId) {
+  if (!ctx) return;
+  const games = Storage.loadAllGames(ctx.teamSlug, ctx.seasonSlug);
+  const game = games.find(g => g.gameId === gameId);
+  if (!game) return;
+  const gnLabel = getGameNumLabel(game);
+  const gLabelStr = game.label ? ` — ${game.label}` : '';
+  const label = `${game.date}${gnLabel}${gLabelStr}`;
+  showModal({
+    title: 'Delete Game',
+    message: `Delete game ${label}?\n\nThis removes the lineup and notes for this game.`,
+    confirmLabel: 'Delete',
+    destructive: true,
+    onConfirm: () => {
+      Storage.deleteGame(ctx.teamSlug, ctx.seasonSlug, gameId);
+      if (currentPlan && currentPlan.gameId === gameId) {
+        currentPlan = null;
+        swapSelection = null;
+        swapHighlight = null;
+        collapsedPeriods.clear();
+        renderLineup();
+      }
+      closeDynamicModal('gameHistoryModal');
+      renderSeason();
+      showToast('Game deleted', 'success');
+    }
+  });
 }

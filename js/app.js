@@ -567,6 +567,14 @@ function setupTabSwipe() {
 }
 
 function loadContextData() {
+  // Clear lineup-affecting state so stale data from a prior team/season
+  // (e.g. after a restore) can't bleed into the newly loaded context.
+  currentPlan = null;
+  availableOrder = [];
+  clockStop();
+  clockElapsed = 0;
+  clockPeriodIdx = 0;
+
   roster = Storage.loadRoster(ctx.teamSlug, ctx.seasonSlug);
   if (!roster) {
     const seasons = Storage.loadSeasons(ctx.teamSlug);
@@ -3597,10 +3605,10 @@ function saveSeasonTrackingDefaults(updates) {
 }
 
 // -- Share Lineup ---------------------------------------------------
-function buildLineupText() {
-  if (!currentPlan || !roster) return '';
+function buildLineupText(planArg) {
+  const plan = planArg || currentPlan;
+  if (!plan || !roster) return '';
 
-  const plan = currentPlan;
   const periodLabel = getPeriodLabel(plan.numPeriods, true);
   const lines = [];
 
@@ -3653,18 +3661,19 @@ function buildLineupText() {
   return lines.join('\n');
 }
 
-async function shareLineup() {
-  if (!currentPlan || !roster) return;
-  const text = buildLineupText();
+async function shareLineup(planArg) {
+  const plan = planArg || currentPlan;
+  if (!plan || !roster) return;
+  const text = buildLineupText(plan);
   const blob = new Blob([text], { type: 'text/plain' });
-  const gid = currentPlan?.gameId || 'lineup';
+  const gid = plan.gameId || 'lineup';
   await shareOrDownload(blob, `lineup-${gid}.txt`, 'Lineup shared');
 }
 
-function printLineup() {
-  if (!currentPlan || !roster) return;
+function printLineup(planArg) {
+  const plan = planArg || currentPlan;
+  if (!plan || !roster) return;
 
-  const plan = currentPlan;
   const periodLabel = getPeriodLabel(plan.numPeriods, true);
   const team = teams.find(t => t.slug === ctx?.teamSlug);
   const teamName = team ? team.name : '';

@@ -1006,6 +1006,48 @@ label {
 .game-history-item > div:first-child > div:first-child {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.game-history-tap {
+  flex: 1; min-width: 0;
+  background: none; border: none; padding: 4px 6px; margin: -4px -6px;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+  border-radius: 6px; transition: background 0.12s;
+}
+.game-history-tap > div:first-child {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.game-history-tap:active { background: rgba(0,230,118,0.08); }
+
+/* Game history popup (Season → Games → tap row) */
+.gh-meta {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  padding: 10px 0; font-size: 12px;
+}
+.gh-players-header {
+  display: grid; grid-template-columns: 1.5fr 0.7fr 1.5fr; gap: 8px;
+  font-size: 11px; font-weight: 600; color: var(--fg2);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 6px 4px; border-bottom: 1px solid var(--border-subtle);
+}
+.gh-players {
+  max-height: 40vh; overflow-y: auto;
+  margin-bottom: 12px;
+}
+.gh-player-row {
+  display: grid; grid-template-columns: 1.5fr 0.7fr 1.5fr; gap: 8px;
+  padding: 6px 4px; border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px; align-items: center;
+}
+.gh-player-row:last-child { border-bottom: none; }
+.gh-player-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-pnum { color: var(--fg2); font-weight: 400; margin-left: 4px; font-size: 12px; }
+.gh-player-periods { font-variant-numeric: tabular-nums; color: var(--fg2); }
+.gh-player-pos { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.gh-actions .lu-btn { flex: 1 1 calc(50% - 6px); padding: 10px 6px; font-size: 13px; }
+.gh-actions .gh-action-primary {
+  background: rgba(0,230,118,0.12); border-color: var(--accent); color: var(--accent);
+}
+.gh-actions .gh-action-danger { color: var(--danger); }
 
 .fairness-badge {
   font-family: 'JetBrains Mono', monospace;
