@@ -287,7 +287,7 @@ function renderField() {
         cx = _pad + baseCoord[0] / 100 * (_W - 2 * _pad);
         cy = _pad + baseCoord[1] / 100 * (_H - 2 * _pad);
       }
-      html += `<div class="dot-overlay" data-pos="${pos}" style="left:${(cx/_W*100).toFixed(2)}%;top:${(cy/_H*100).toFixed(2)}%"></div>`;
+      html += `<div class="dot-overlay" data-pos="${esc(pos)}" style="left:${(cx/_W*100).toFixed(2)}%;top:${(cy/_H*100).toFixed(2)}%"></div>`;
     }
     if (fieldDefenseOn) {
       for (let di = 0; di < fieldDefenseMarkers.length; di++) {
@@ -427,10 +427,10 @@ function buildFieldSVG(formInfo, layout, plan, periodIdx) {
     const hasPlayer = playerMap && playerMap[pos];
     const dotClass = isGK ? 'gk-dot' : (hasPlayer ? 'player-dot' : 'template-dot');
 
-    svg += `<g class="dot-group" data-pos="${pos}">`;
+    svg += `<g class="dot-group" data-pos="${esc(pos)}">`;
     svg += `<circle class="dot-hit" cx="${cx}" cy="${cy}" r="${hitR}"/>`;
     svg += `<circle class="dot-circle ${dotClass}" cx="${cx}" cy="${cy}" r="${dotR}"/>`;
-    svg += `<text class="dot-label" x="${cx}" y="${cy + 1}" font-size="9">${pos}</text>`;
+    svg += `<text class="dot-label" x="${cx}" y="${cy + 1}" font-size="9">${esc(pos)}</text>`;
 
     if (hasPlayer && fieldShowNames) {
       const pName = playerMap[pos].length > 10 ? playerMap[pos].slice(0, 9) + '\u2026' : playerMap[pos];

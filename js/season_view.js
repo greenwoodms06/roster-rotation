@@ -370,7 +370,7 @@ function renderSeasonPlayers(games, stats, pids) {
       const count = s.periodsByPosition[pos] || 0;
       if (count === 0) continue;
       const w = (count / total) * barMaxW;
-      html += `<rect x="${xOff}" y="${y + 4}" width="${w}" height="${rowH - 10}" fill="${posColors[pos]}" opacity="${isArchived ? '0.4' : '0.8'}"><title>${pos}: ${fmtPeriods(count)} (${Math.round(count / total * 100)}%)</title></rect>`;
+      html += `<rect x="${xOff}" y="${y + 4}" width="${w}" height="${rowH - 10}" fill="${posColors[pos]}" opacity="${isArchived ? '0.4' : '0.8'}"><title>${esc(pos)}: ${fmtPeriods(count)} (${Math.round(count / total * 100)}%)</title></rect>`;
       xOff += w;
     }
   }
@@ -379,7 +379,7 @@ function renderSeasonPlayers(games, stats, pids) {
   let lx = barX;
   for (const pos of roster.positions) {
     html += `<rect x="${lx}" y="${legendY}" width="10" height="10" rx="2" fill="${posColors[pos]}" opacity="0.8"/>`;
-    html += `<text x="${lx + 13}" y="${legendY + 9}" fill="var(--fg2)" font-size="9" font-family="'JetBrains Mono',monospace">${pos}</text>`;
+    html += `<text x="${lx + 13}" y="${legendY + 9}" fill="var(--fg2)" font-size="9" font-family="'JetBrains Mono',monospace">${esc(pos)}</text>`;
     lx += 13 + pos.length * 6 + 10;
     if (lx > svgW - 30) { lx = barX; }
   }

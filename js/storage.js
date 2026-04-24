@@ -329,28 +329,36 @@ const Storage = {
     }
 
     const teamData = data.teams[0];
+    // Re-slugify in case the file was tampered with — slugs flow into inline
+    // onclick= attributes at render time. Keep this in sync with _importTeamData.
+    const teamSlug = slugify(teamData.slug || teamData.name || 'team');
 
     // If team already exists, cascade delete first
-    const existing = this.loadTeams().find(t => t.slug === teamData.slug);
+    const existing = this.loadTeams().find(t => t.slug === teamSlug);
     if (existing) {
-      this.deleteTeam(teamData.slug);
+      this.deleteTeam(teamSlug);
     }
 
     this._importTeamData(teamData, data.version);
 
     return {
-      teamSlug: teamData.slug,
-      seasonSlugs: (teamData.seasons || []).map(s => s.slug),
+      teamSlug,
+      seasonSlugs: (teamData.seasons || []).map(s => slugify(s.slug || s.name || 'season')),
     };
   },
 
-  /** Internal: write a single team's data into localStorage. Migrates v3 games to v4. */
+  /** Internal: write a single team's data into localStorage. Migrates v3 games to v4.
+   *  Slugs are re-slugified at the import seam: even though our own slugify() is
+   *  always applied at creation time, an imported backup file is attacker-
+   *  controlled, and slugs flow into inline onclick= attributes later. */
   _importTeamData(teamData, version) {
-    this.addTeam({ slug: teamData.slug, name: teamData.name });
+    const teamSlug = slugify(teamData.slug || teamData.name || 'team');
+    this.addTeam({ slug: teamSlug, name: teamData.name });
 
     for (const seasonData of (teamData.seasons || [])) {
-      this.addSeason(teamData.slug, {
-        slug: seasonData.slug,
+      const seasonSlug = slugify(seasonData.slug || seasonData.name || 'season');
+      this.addSeason(teamSlug, {
+        slug: seasonSlug,
         name: seasonData.name,
         sport: seasonData.sport || null,
         playerCount: seasonData.playerCount || null,
@@ -359,20 +367,20 @@ const Storage = {
       });
 
       if (seasonData.roster) {
-        this.saveRoster(teamData.slug, seasonData.slug, seasonData.roster);
+        this.saveRoster(teamSlug, seasonSlug, seasonData.roster);
       }
 
       if (Array.isArray(seasonData.games) && seasonData.games.length > 0) {
         // Migrate v3 games to v4 on import
         const games = (version === 3) ? migrateGamesToV4(seasonData.games) : seasonData.games;
         StorageAdapter.set(
-          this._key(teamData.slug, seasonData.slug, 'games'),
+          this._key(teamSlug, seasonSlug, 'games'),
           JSON.stringify(games)
         );
       }
 
       if (Array.isArray(seasonData.plays) && seasonData.plays.length > 0) {
-        this.savePlays(teamData.slug, seasonData.slug, seasonData.plays);
+        this.savePlays(teamSlug, seasonSlug, seasonData.plays);
       }
     }
   },
