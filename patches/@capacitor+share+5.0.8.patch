@@ -1,0 +1,41 @@
+diff --git a/node_modules/@capacitor/share/android/src/main/java/com/capacitorjs/plugins/share/SharePlugin.java b/node_modules/@capacitor/share/android/src/main/java/com/capacitorjs/plugins/share/SharePlugin.java
+index 63b3635..e60cabd 100644
+--- a/node_modules/@capacitor/share/android/src/main/java/com/capacitorjs/plugins/share/SharePlugin.java
++++ b/node_modules/@capacitor/share/android/src/main/java/com/capacitorjs/plugins/share/SharePlugin.java
+@@ -7,6 +7,7 @@ import android.net.Uri;
+ import android.os.Build;
+ import android.webkit.MimeTypeMap;
+ import androidx.activity.result.ActivityResult;
++import androidx.core.content.ContextCompat;
+ import androidx.core.content.FileProvider;
+ import com.getcapacitor.JSArray;
+ import com.getcapacitor.JSObject;
+@@ -41,7 +42,12 @@ public class SharePlugin extends Plugin {
+                     }
+                 }
+             };
+-        getActivity().registerReceiver(broadcastReceiver, new IntentFilter(Intent.EXTRA_CHOSEN_COMPONENT));
++        ContextCompat.registerReceiver(
++            getActivity(),
++            broadcastReceiver,
++            new IntentFilter(Intent.EXTRA_CHOSEN_COMPONENT),
++            ContextCompat.RECEIVER_NOT_EXPORTED
++        );
+     }
+ 
+     @SuppressWarnings("deprecation")
+@@ -118,7 +124,13 @@ public class SharePlugin extends Plugin {
+             }
+ 
+             // requestCode parameter is not used. Providing 0
+-            PendingIntent pi = PendingIntent.getBroadcast(getContext(), 0, new Intent(Intent.EXTRA_CHOSEN_COMPONENT), flags);
++            // Targeting Android 14 (API 34) requires the broadcast intent to be
++            // explicit when combined with FLAG_MUTABLE. Setting the package name
++            // satisfies that constraint while keeping the receiver writable so
++            // the chooser can populate EXTRA_CHOSEN_COMPONENT.
++            Intent broadcastIntent = new Intent(Intent.EXTRA_CHOSEN_COMPONENT);
++            broadcastIntent.setPackage(getContext().getPackageName());
++            PendingIntent pi = PendingIntent.getBroadcast(getContext(), 0, broadcastIntent, flags);
+             Intent chooser = Intent.createChooser(intent, dialogTitle, pi.getIntentSender());
+             chosenComponent = null;
+             chooser.addCategory(Intent.CATEGORY_DEFAULT);
