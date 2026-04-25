@@ -132,15 +132,70 @@ device or emulator, and check:
 
 ## Success criteria
 
-- [ ] `npx cap run android` launches a working app on emulator/device.
-- [ ] A signed release `.aab` is produced locally (not uploaded yet —
+- [x] `npx cap run android` launches a working app on emulator/device.
+- [x] A signed release `.aab` is produced locally (not uploaded yet —
       author does that out-of-band).
-- [ ] Unit tests (`node tests/run_all.mjs`) still green (should be
-      unaffected — no JS changes expected this session).
-- [ ] Playwright (`cd tests/e2e && npm test`) still green — the web
-      build must not regress.
-- [ ] PWA on GitHub Pages still renders identically (donate + Print
-      still visible in a browser).
+- [x] Unit tests (`node tests/run_all.mjs`) still green (unaffected
+      by the wrap; no engine/storage changes).
+- [x] Playwright (`cd tests/e2e && npm test`) green — 13/13 in 51.9s.
+      Print path swap (popup → iframe) didn't regress anything the suite
+      exercises.
+- [x] PWA on GitHub Pages still renders identically (donate still gated
+      on native only; Print restored on both — see Outcomes below).
+
+## Outcomes (post-session addendum)
+
+The session shipped a working signed `app-release.aab` on a real
+emulator + device. A few things went differently than this prompt
+predicted:
+
+- **`webDir: "."` doesn't work.** Capacitor 5 hard-rejects it (would
+  recurse into `android/`). Fix: `scripts/build-www.mjs` mirrors the
+  runtime files into a gitignored `www/` directory before each `cap
+  sync`. `capacitor.config.json` points `webDir` at `www`. PWA root
+  layout untouched. `npm run cap:sync` chains the build + sync.
+
+- **Print is back on native, not skipped.** The prompt scoped print
+  out for MVP (`@capacitor-community/print` listed as optional). Did
+  it anyway via a custom `JavascriptInterface` in `MainActivity.java`
+  named `AndroidPrint` — renders the HTML in an off-screen WebView and
+  hands the `PrintDocumentAdapter` to `PrintManager`. ~40 lines of
+  Java, no plugin dependency.
+
+- **Share required Android 14 patches.** `@capacitor/share@5.0.8`
+  (latest v5) crashes twice on `targetSdk 34`: `registerReceiver`
+  missing `RECEIVER_NOT_EXPORTED` flag, and `PendingIntent` with
+  `FLAG_MUTABLE` over an implicit intent. Both were fixed in v6 of
+  the plugin and never backported. `patches/@capacitor+share+5.0.8.patch`
+  carries the diffs; `patch-package` postinstall hook reapplies on
+  every `npm install`.
+
+- **Plugins installed.** Splash Screen + Status Bar (per prompt),
+  plus Share + Filesystem (the prompt listed them as "install only
+  if needed" — needed). Filesystem feeds `Share.share({ url })` with
+  a cache-dir URI; FileProvider config already covered the cache path.
+
+- **`targetSdkVersion` bumped 33 → 34** during the wrap (Play Store
+  floor as of Aug 2025). `compileSdkVersion` matched. `minSdk` 22
+  unchanged. Unsigned build warnings about AGP 8.0 + compileSdk 34
+  are noisy but harmless — Capacitor 5's bundled AGP version handles
+  it; can be silenced with `android.suppressUnsupportedCompileSdk=34`
+  in `gradle.properties` if desired.
+
+- **Icons regenerated from `icons/icon.svg`** via Inkscape (called
+  through `wslpath` from WSL bash) → 1024 PNGs → ImageMagick down-
+  scaled into per-density mipmaps. Adaptive-icon background is the
+  `@color/ic_launcher_background` resource (`#0f1923`), foreground is
+  `assets/icon-foreground.svg` (loop only, scaled into the safe zone).
+  Re-running this is currently manual; no script in `scripts/` for it
+  yet.
+
+- **Keystore lives at `D:/AndroidKeystores/rotations-release.jks`**
+  (outside the repo). Wired through `android/keystore.properties`
+  (gitignored) → `android/app/build.gradle` `signingConfigs.release`.
+  Schema in `android/keystore.properties.example`. The PKCS12 `.jks`
+  was generated with `keytool` directly (Android Studio's bundled
+  JBR includes it).
 
 ## References
 

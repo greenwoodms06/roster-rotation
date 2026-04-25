@@ -143,7 +143,8 @@
 
 ## Next Up
 
-- [ ] **App store distribution** -- wrap PWA with Capacitor for Google Play + App Store. Prep work scoped in `docs/SESSION_PROMPT_CAPACITOR_PREP.md` (SW gating, safe-area insets, storage adapter seam, app.js splits, Playwright smoke suite). Wrapping itself is a follow-on session.
+- [x] **App store distribution (Android)** -- Capacitor 5 wrap producing a signed `app-release.aab` for Google Play internal testing. Pinned to v5 (Flamingo IDE constraint), `www/` mirror webDir, native Share + Filesystem with patch-package fixes for two Android 14 crashes in `@capacitor/share@5.0.8`, custom `AndroidPrint` JS bridge in `MainActivity` (WebView's `window.print()` is silent without it), keystore lives outside repo with gradle `keystore.properties` seam. Session writeup in `docs/SESSION_PROMPT_CAPACITOR_WRAP.md`. iOS still pending.
+- [ ] **App store distribution (iOS)** -- separate Capacitor wrap session for App Store. Will need to revisit the SW gating (WKWebView has no SW), the Share plugin path (uses native iOS share sheet), and signing (Apple Developer cert + provisioning profile). Probably blocked on having a Mac to build from.
 - [ ] **Cloud backup** -- client-side backup to user's own cloud storage (Google Drive, iCloud). No backend. See docs/DISTRIBUTION_STRATEGY.md Phase 3.
 
 ## Recently Completed

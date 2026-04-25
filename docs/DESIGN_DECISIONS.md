@@ -912,3 +912,26 @@ Three regions were deliberately **not** extracted in this pass — lineup displa
 ## Storage Adapter Seam
 
 All `localStorage.*` calls are routed through `StorageAdapter` (defined in `storage_adapter.js`). The adapter currently delegates straight to `localStorage` synchronously. Its purpose is to provide a single swap point for Capacitor's Preferences plugin on native builds. Keeping the adapter synchronous preserves call-site shape — when native lands, hot paths can migrate to async selectively rather than the whole codebase converting at once.
+
+## Capacitor Wrap (Android)
+
+### Why Capacitor 5, not 6
+Capacitor 6 generates AGP 8.2.1 projects that require Android Studio Hedgehog (2023.1.1) or newer. Local IDE is Flamingo (2022.2.1), which ships AGP 8.0. Capacitor 5.7.x uses AGP 8.0.0 — exact match. Bumping to v6 would force an Android Studio upgrade, which would ripple into other projects on the same machine. v5 is in maintenance mode but stable and has working v5-compatible plugins for everything we need (Share, Filesystem, Splash Screen, Status Bar). Migration to v6 is a routine `npm install @capacitor/core@6 ...` + `npx cap sync` whenever Android Studio gets updated.
+
+### Why `www/` instead of `webDir: "."`
+The original session plan (`SESSION_PROMPT_CAPACITOR_WRAP.md`) called for `webDir: "."` so the repo root would be the WebView bundle directly. Capacitor 5 hard-rejects this — `cap copy` would recurse into `android/` infinitely. The fix: `scripts/build-www.mjs` mirrors the runtime files (`index.html`, `sw.js`, `css/`, `js/`, etc.) into a gitignored `www/` directory before each `cap sync`. The PWA's GitHub Pages serving is unchanged because the repo root still has all the same files. `npm run cap:sync` chains `build:www` + `cap sync` so the mirror stays fresh automatically.
+
+### Native print: custom JS bridge instead of a plugin
+Android's WebView silently no-ops on `window.print()` — the host app must wire it to `PrintManager` itself. Options were: (a) install a community print plugin, (b) write the bridge in Java. Chose (b) — `MainActivity.java` adds a `JavascriptInterface` named `AndroidPrint` whose `print(html)` method renders the HTML in an off-screen WebView and hands the resulting `PrintDocumentAdapter` to `PrintManager`. Reasoning: the bridge is ~40 lines of Java with zero version-compat risk, vs. another transitive plugin dependency that ships its own quirks. JS calls `window.AndroidPrint.print(html)` on native; the web path uses a hidden `<iframe srcdoc>` whose inline `<script>window.print()</script>` fires on load.
+
+### Native share: patch-package over plugin upgrade
+`@capacitor/share@5.0.8` (latest in the v5 line) crashes on Android 14 (targetSdk 34) twice: `SharePlugin.load()` calls `registerReceiver` without the `RECEIVER_NOT_EXPORTED` flag, and `SharePlugin.share()` builds a `PendingIntent` with `FLAG_MUTABLE` over an implicit intent. Both were fixed in v6 of the plugin and never backported to v5. Rather than mix Capacitor 5 core with v6 plugins (peer-dep mismatch, untested), `patches/@capacitor+share+5.0.8.patch` carries the two minimal diffs from the v6 fix. `patch-package` reapplies them on every `npm install` via the `postinstall` hook.
+
+### Cache directory + FileProvider for share
+`navigator.share` in the Capacitor WebView is unreliable. The native path writes the JSON blob to the app's cache directory via `Filesystem.writeFile({ directory: 'CACHE' })` and hands the file URI to `Share.share`. The default Capacitor `file_paths.xml` already declares `<cache-path>`, so the FileProvider can resolve the URI to a `content://` URI for the receiving app. No `WRITE_EXTERNAL_STORAGE` permission needed — cache is internal storage.
+
+### Keystore lives outside the repo
+`D:/AndroidKeystores/rotations-release.jks`, with the path + passwords in `android/keystore.properties` (gitignored). `android/keystore.properties.example` documents the schema. Reasoning: putting the `.jks` in the repo (even gitignored) risks an accidental `git add -A`, and putting the password anywhere committable is worse. The keystore is single-source-of-truth for Play Store update authority — losing it means no more updates to the published app, ever (Google policy). User maintains backups out-of-band (OneDrive / password manager).
+
+### Print/Share button gating retained on web
+`Platform.isWeb()` gates were removed from the Print and Share buttons during the wrap session — both now work on native too. The `Platform` seam itself is retained because the **donate** button still has to be hidden on native (Google Play's payments policy forbids external donation links in apps), and the SW registration still needs to be skipped (Android WebView fails under `capacitor://`, iOS WKWebView doesn't support SWs at all).
