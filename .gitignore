@@ -1,6 +1,9 @@
 # npm
 node_modules/
 
+# Generated webDir mirror (rebuilt by scripts/build-www.mjs before each cap sync)
+www/
+
 # Capacitor / Android build artifacts (added in step 2 of capacitor wrap)
 android/app/build/
 android/build/

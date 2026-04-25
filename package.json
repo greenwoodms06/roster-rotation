@@ -9,11 +9,15 @@
     "url": "git+https://github.com/greenwoodms06/roster-rotation.git"
   },
   "scripts": {
-    "cap:sync": "cap sync android",
+    "build:www": "node scripts/build-www.mjs",
+    "cap:sync": "npm run build:www && cap sync android",
     "cap:open": "cap open android"
   },
   "devDependencies": {
     "@capacitor/cli": "^5.7.8",
     "@capacitor/core": "^5.7.8"
+  },
+  "dependencies": {
+    "@capacitor/android": "^5.7.8"
   }
 }

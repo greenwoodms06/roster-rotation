@@ -1,7 +1,7 @@
 {
   "appId": "com.greenwoodms06.rotations",
   "appName": "Rotations",
-  "webDir": ".",
+  "webDir": "www",
   "server": {
     "androidScheme": "https"
   }
