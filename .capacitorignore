@@ -1,0 +1,35 @@
+# Files excluded from `npx cap copy/sync` — keep the Android assets bundle small.
+# Anything not listed here is copied into android/app/src/main/assets/public/.
+
+# Dev / docs (not needed at runtime)
+docs/
+tests/
+media/
+*.md
+
+# npm + Capacitor tooling
+node_modules/
+package.json
+package-lock.json
+capacitor.config.json
+capacitor.config.ts
+.capacitorignore
+
+# Native project (would recurse forever otherwise)
+android/
+ios/
+
+# Repo metadata
+.git/
+.gitignore
+.gitattributes
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Keystore safety net
+keystore.properties
+*.jks
+*.keystore

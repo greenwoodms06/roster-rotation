@@ -1,0 +1,17 @@
+# npm
+node_modules/
+
+# Capacitor / Android build artifacts (added in step 2 of capacitor wrap)
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/captures/
+keystore.properties
+*.jks
+*.keystore
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
