@@ -2272,7 +2272,7 @@ function renderLineup() {
     <div class="lu-btn-left"><div class="scrimmage-toggle" onclick="toggleScrimmage()" title="Exclude from season stats"><div class="check${plan.exhibition ? ' checked' : ''}" id="scrimmageCheck"></div><span>Scrimmage</span></div></div>
     <div class="lu-btn-right">
       <button class="lu-btn" onclick="shareLineup()">Share</button>
-      ${Platform.isWeb() ? '<button class="lu-btn" onclick="printLineup()">Print</button>' : ''}
+      <button class="lu-btn" onclick="printLineup()">Print</button>
       <button class="lu-btn" onclick="deleteCurrentGame()">Delete</button>
     </div>
   </div>`;
@@ -3821,13 +3821,29 @@ function printLineup(planArg) {
 <script>window.onload = function() { window.print(); }</script>
 </body></html>`;
 
-  const win = window.open('', '_blank');
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-  } else {
-    showToast('Pop-up blocked — allow pop-ups for this site', 'error');
+  // Native (Capacitor): hand the HTML to the Android PrintBridge interface in
+  // MainActivity.java, which renders it in an off-screen WebView and calls
+  // PrintManager. window.print() is a silent no-op in the embedded WebView.
+  if (Platform.isNative() && window.AndroidPrint && typeof window.AndroidPrint.print === 'function') {
+    window.AndroidPrint.print(html);
+    return;
   }
+
+  // Web: hidden iframe instead of window.open (which returns null in the
+  // WebView and may be popup-blocked on the web). The HTML's inline
+  // <script>window.print()</script> fires on iframe load; the system print
+  // dialog grabs the document at that moment, so removing the iframe after
+  // afterprint (or a long timeout) is safe.
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  const cleanup = () => { try { iframe.remove(); } catch (_) {} };
+  iframe.addEventListener('load', () => {
+    try { iframe.contentWindow.addEventListener('afterprint', cleanup, { once: true }); } catch (_) {}
+  }, { once: true });
+  setTimeout(cleanup, 60000);
+  document.body.appendChild(iframe);
+  iframe.srcdoc = html;
 }
 
 

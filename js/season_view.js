@@ -517,7 +517,7 @@ function openGameHistoryPopup(gameId) {
       <div class="gh-actions">
         <button class="lu-btn gh-action-primary" onclick="gameHistoryOpen('${gidEsc}')">Open in Lineup</button>
         <button class="lu-btn" onclick="gameHistoryShare('${gidEsc}')">Share</button>
-        ${Platform.isWeb() ? `<button class="lu-btn" onclick="gameHistoryPrint('${gidEsc}')">Print</button>` : ''}
+        <button class="lu-btn" onclick="gameHistoryPrint('${gidEsc}')">Print</button>
         <button class="lu-btn gh-action-danger" onclick="gameHistoryDelete('${gidEsc}')">Delete</button>
       </div>
     </div>
