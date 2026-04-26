@@ -1309,6 +1309,7 @@ label {
   font-family: 'DM Sans', sans-serif;
 }
 .btn-sm-outline:active { border-color: var(--accent); color: var(--accent); }
+.btn-sm-outline.active { border-color: var(--accent); color: var(--accent); background: rgba(0,230,118,0.08); }
 .btn-sm-outline:disabled { opacity: 0.3; cursor: default; }
 .btn-sm-danger { color: var(--danger); border-color: rgba(255,82,82,0.25); }
 .btn-sm-danger:active { border-color: var(--danger); color: var(--danger); }

@@ -50,6 +50,16 @@ function getPlaysCtx() {
   return ctx || { teamSlug: '__standalone__', seasonSlug: '__standalone__' };
 }
 
+/** Returns the active sport+count for the field tab (season or standalone). */
+function getFieldSportInfo() {
+  if (ctx && roster) {
+    const info = getSeasonSport();
+    if (info) return info;
+    return { sport: null, n: roster.positions.length };
+  }
+  return { sport: fieldStandaloneSport, n: fieldStandaloneCount };
+}
+
 /** Sport/format selector rendered only in standalone (no team) mode. */
 function buildStandaloneSportSelectorHTML() {
   const currentSport = SPORTS[fieldStandaloneSport];
@@ -210,11 +220,15 @@ function renderField() {
   if (fieldDrawMode) {
     html += '<div class="draw-toolbar">';
     if (fieldSelectedRoute !== null) {
+      const selStyle = (fieldRoutes[fieldSelectedRoute] && fieldRoutes[fieldSelectedRoute].style) || 'solid';
       html += '<span class="draw-toolbar-label">Route selected</span>';
+      html += `<button class="btn-sm-outline" onclick="toggleSelectedRouteStyle()" title="Toggle solid / dashed">${selStyle === 'dashed' ? 'Dashed' : 'Solid'}</button>`;
       html += '<button class="btn-sm-outline btn-sm-danger" onclick="deleteSelectedRoute()">Delete Route</button>';
       html += '<button class="btn-sm-outline" onclick="deselectRoute()">Cancel</button>';
     } else {
       html += '<span class="draw-toolbar-label">Drawing routes</span>';
+      html += `<button class="btn-sm-outline${fieldRouteStyle === 'solid' ? ' active' : ''}" onclick="setRouteStyle('solid')" title="Solid line (player movement)">Solid</button>`;
+      html += `<button class="btn-sm-outline${fieldRouteStyle === 'dashed' ? ' active' : ''}" onclick="setRouteStyle('dashed')" title="Dashed line (ball / pass)">Dashed</button>`;
       html += `<button class="btn-sm-outline" onclick="undoRoute()"${fieldRoutes.length === 0 ? ' disabled' : ''}>&#x21A9; Undo</button>`;
       html += `<button class="btn-sm-outline" onclick="clearRoutes()"${fieldRoutes.length === 0 ? ' disabled' : ''}>Clear All</button>`;
     }
@@ -392,11 +406,12 @@ function buildFieldSVG(formInfo, layout, plan, periodIdx) {
     const pathD = smoothPath(route.points);
     const strokeColor = isSelected ? 'rgba(0,230,118,0.9)' : 'rgba(255,255,255,1.0)';
     const strokeW = isSelected ? 3.5 : 2.5;
+    const dashAttr = route.style === 'dashed' ? ' stroke-dasharray="8 5"' : '';
 
     // Selection hit area (wider invisible path)
     svg += `<path d="${pathD}" fill="none" stroke="transparent" stroke-width="18" class="route-hit" data-route-idx="${ri}"/>`;
     // Visible path
-    svg += `<path d="${pathD}" fill="none" stroke="${strokeColor}" stroke-width="${strokeW}" stroke-linecap="round" stroke-linejoin="round" class="route-path" data-route-idx="${ri}"/>`;
+    svg += `<path d="${pathD}" fill="none" stroke="${strokeColor}" stroke-width="${strokeW}" stroke-linecap="round" stroke-linejoin="round"${dashAttr} class="route-path" data-route-idx="${ri}"/>`;
     // Collect arrowhead for later (rendered on top)
     const pts = route.points;
     arrowheadsSvg += buildArrowhead(pts[pts.length - 2], pts[pts.length - 1], 10, strokeColor);
@@ -862,6 +877,11 @@ function buildPlaysControlsHTML() {
   if (playsMenuOpen) {
     html += '<div class="plays-menu">';
     html += '<button class="plays-menu-item" onclick="closePlaysMenu();savePlayAsNew()">Save as New...</button>';
+    const info = getFieldSportInfo();
+    const templates = info.sport ? getPlayTemplates(info.sport, info.n) : [];
+    if (templates.length > 0) {
+      html += '<button class="plays-menu-item" onclick="closePlaysMenu();showTemplatesModal()">Browse templates...</button>';
+    }
     if (fieldActivePlayId) {
       const ap = fieldPlays.find(p => p.id === fieldActivePlayId);
       const apName = ap ? ap.name : 'play';
@@ -932,7 +952,7 @@ function savePlayAsNew() {
     confirmLabel: 'Save',
     onConfirm: (trimmed) => {
       const playsCtx = getPlaysCtx();
-      const routesCopy = fieldRoutes.length > 0 ? fieldRoutes.map(r => ({ points: r.points.map(p => [...p]) })) : undefined;
+      const routesCopy = fieldRoutes.length > 0 ? fieldRoutes.map(r => ({ points: r.points.map(p => [...p]), style: r.style || 'solid' })) : undefined;
       const defenseCopy = fieldDefenseOn && fieldDefenseMarkers.length > 0 ? fieldDefenseMarkers.map(d => ({ ...d })) : undefined;
       const zonesCopy = fieldZones.length > 0 ? fieldZones.map(z => ({ points: z.points.map(p => [...p]), color: z.color })) : undefined;
 
@@ -984,7 +1004,7 @@ function overwriteActivePlay() {
 
   play.formation = fieldFormationIdx;
   play.positions = { ...fieldDotPositions };
-  play.routes = fieldRoutes.length > 0 ? fieldRoutes.map(r => ({ points: r.points.map(p => [...p]) })) : undefined;
+  play.routes = fieldRoutes.length > 0 ? fieldRoutes.map(r => ({ points: r.points.map(p => [...p]), style: r.style || 'solid' })) : undefined;
   play.defense = fieldDefenseOn && fieldDefenseMarkers.length > 0 ? fieldDefenseMarkers.map(d => ({ ...d })) : undefined;
   play.zones = fieldZones.length > 0 ? fieldZones.map(z => ({ points: z.points.map(p => [...p]), color: z.color })) : undefined;
   const playsCtx = getPlaysCtx();
@@ -1009,7 +1029,7 @@ function loadPlay(playId) {
   fieldActivePlayId = play.id;
   fieldFormationIdx = play.formation || 0;
   fieldDotPositions = play.positions ? { ...play.positions } : {};
-  fieldRoutes = play.routes ? play.routes.map(r => ({ points: r.points.map(p => [...p]) })) : [];
+  fieldRoutes = play.routes ? play.routes.map(r => ({ points: r.points.map(p => [...p]), style: r.style || 'solid' })) : [];
   fieldSelectedRoute = null;
   if (play.defense) {
     fieldDefenseOn = true;
@@ -1024,6 +1044,80 @@ function loadPlay(playId) {
   renderField();
 }
 
+/** Convert a 0-100 percentage point to SVG pixel coords (matches buildFieldSVG). */
+function _pctToSvg(pt) {
+  const W = 340, H = 480, pad = 12;
+  return [pad + pt[0] / 100 * (W - 2 * pad), pad + pt[1] / 100 * (H - 2 * pad)];
+}
+
+/**
+ * Apply a bundled play template to the field. Templates are read-only;
+ * this clears fieldActivePlayId so the user's next "Save" creates a new play.
+ */
+function loadTemplate(template) {
+  if (!template) return;
+  fieldActivePlayId = null;
+  fieldFormationIdx = template.formation || 0;
+  fieldDotPositions = {};
+  if (template.positions) {
+    for (const [pos, pt] of Object.entries(template.positions)) {
+      fieldDotPositions[pos] = _pctToSvg(pt);
+    }
+  }
+  fieldRoutes = (template.routes || []).map(r => ({
+    points: r.points.map(_pctToSvg),
+    style: r.style === 'dashed' ? 'dashed' : 'solid',
+  }));
+  fieldSelectedRoute = null;
+  fieldDefenseOn = false;
+  fieldDefenseMarkers = [];
+  fieldZones = [];
+  fieldZoneMode = false;
+  fieldSelectedZone = null;
+  closeCustomModal();
+  renderField();
+  showToast('Loaded template: ' + template.name, 'success');
+}
+
+function showTemplatesModal() {
+  const info = getFieldSportInfo();
+  if (!info.sport) return;
+  const templates = getPlayTemplates(info.sport, info.n);
+  if (templates.length === 0) return;
+
+  closeCustomModal();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'customModal';
+
+  let itemsHtml = '';
+  for (let i = 0; i < templates.length; i++) {
+    const t = templates[i];
+    const routeCount = (t.routes || []).length;
+    itemsHtml += `<button class="plays-menu-item" data-tpl-idx="${i}">${esc(t.name)} <span style="color:var(--fg2);font-size:12px;float:right">${routeCount} route${routeCount !== 1 ? 's' : ''}</span></button>`;
+  }
+
+  overlay.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true">
+      <h2>Browse Templates</h2>
+      <div class="modal-message" style="margin-bottom:8px">Tap a template to load it onto the field. Save as new to keep your version.</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">${itemsHtml}</div>
+      <div class="modal-actions"><button class="btn btn-outline" id="customModalCancel">Close</button></div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  overlay.querySelectorAll('button[data-tpl-idx]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.getAttribute('data-tpl-idx'), 10);
+      loadTemplate(templates[idx]);
+    });
+  });
+  document.getElementById('customModalCancel').addEventListener('click', () => closeCustomModal());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCustomModal(); });
+}
+
 function resetToActivePlay() {
   if (!fieldActivePlayId) return;
   const play = fieldPlays.find(p => p.id === fieldActivePlayId);
@@ -1031,7 +1125,7 @@ function resetToActivePlay() {
 
   fieldFormationIdx = play.formation || 0;
   fieldDotPositions = play.positions ? { ...play.positions } : {};
-  fieldRoutes = play.routes ? play.routes.map(r => ({ points: r.points.map(p => [...p]) })) : [];
+  fieldRoutes = play.routes ? play.routes.map(r => ({ points: r.points.map(p => [...p]), style: r.style || 'solid' })) : [];
   fieldSelectedRoute = null;
   if (play.defense) {
     fieldDefenseOn = true;
@@ -1260,7 +1354,7 @@ function onDrawPointerDown(e) {
       const totalDist = Math.sqrt(dx * dx + dy * dy);
 
       if (totalDist > 15) {
-        fieldRoutes.push({ points: sampled });
+        fieldRoutes.push({ points: sampled, style: fieldRouteStyle });
       }
     }
 
@@ -1274,6 +1368,19 @@ function onDrawPointerDown(e) {
   document.addEventListener('pointermove', move, { passive: false });
   document.addEventListener('pointerup', up);
   document.addEventListener('pointercancel', up);
+}
+
+function setRouteStyle(style) {
+  if (style !== 'solid' && style !== 'dashed') return;
+  fieldRouteStyle = style;
+  renderField();
+}
+
+function toggleSelectedRouteStyle() {
+  if (fieldSelectedRoute === null || !fieldRoutes[fieldSelectedRoute]) return;
+  const r = fieldRoutes[fieldSelectedRoute];
+  r.style = r.style === 'dashed' ? 'solid' : 'dashed';
+  renderField();
 }
 
 function undoRoute() {

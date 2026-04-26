@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rotation-v3.43';
+const CACHE_NAME = 'rotation-v3.44';
 const ASSETS = [
   './index.html',
   './css/styles.css',
@@ -15,6 +15,7 @@ const ASSETS = [
   './js/backup.js',
   './js/season_view.js',
   './js/modals.js',
+  './js/play_templates.js',
   './js/field.js',
   './js/app.js',
   './manifest.json',
