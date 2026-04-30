@@ -79,7 +79,7 @@ The **Lineup** tab is designed for sideline use during a game:
 
 - **Tap-to-swap** -- tap any two players in the same period to open the swap popup. When both slots are clean (no mid-period subs yet), tapping swaps instantly. When slots have sub history, the popup appears with a unified time picker: **Swap** (selected by default) trades positions instantly, or pick a fraction (¼/⅓/½/⅔/¾) to record when the sub happened. Toggle **Approx/Exact** for second-precise timing with 1s/10s/30s/1m/5m increments. One **Confirm** button executes all actions. **Reset to full period** (text link) wipes sub history for corrections.
 - **Timeline bars** -- position-colored bars on each player row show time at each position during the period. Tap any bar for a full-game detail popup with per-period breakdowns, position legends, and reset buttons. Always visible.
-- **Game clock** -- always visible in the lineup header. Play/pause, reset, count up or count down. When running, the clock auto-fills the sub time in the exact stepper.
+- **Game clock** -- always visible in the lineup header. Play/pause, reset, count up or count down. When running, the clock auto-fills the sub time in the exact stepper. When the clock reaches the end of the period it plays a period-end alert (sound + vibrate, configurable in Settings) that repeats every 3 seconds until you pause, reset, or advance the period.
 - **Goal tracking** -- use the +/- buttons on each player row to track who scored. Opponent goals are tracked per period in the score header. The running score is displayed at the top of each period card.
 - **Scrimmage toggle** -- check "Scrimmage" to mark a game as an exhibition. Scrimmage games are excluded from season stats (W-L-D record, playing time fairness).
 - **Game label** -- add an optional label (e.g. "vs. Lincoln FC") that appears in game history and share text.
@@ -136,7 +136,7 @@ Tap **⋮ → Settings** to customize the app:
 
 - **Theme** -- Dark, Light, or System (follows your phone's setting)
 - **Game Structure** -- default sport, default players per side (2–20), game format (stepper: any count from 1 to 999; seeds new games only), segment length (MM:SS), starter mode, position stickiness, max segments per player, max subs per break. Changing the default sport resets the player count to that sport's typical default (e.g., soccer → 7, basketball → 5, hockey → 6).
-- **Tracking & Clock** -- timing precision (Approx / Exact), clock direction (↓ Down / ↑ Up)
+- **Tracking & Clock** -- timing precision (Approx / Exact), clock direction (↓ Down / ↑ Up), period-end sound, period-end vibrate, Test alert button. Sound and vibrate are independent toggles, so any combination (none / sound only / vibrate only / both) is supported.
 - **Hints** -- show or dismiss all first-use tip banners
 
 ## Repo Structure

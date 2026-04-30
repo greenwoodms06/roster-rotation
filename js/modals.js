@@ -243,6 +243,8 @@ function loadSettings() {
     defaultMaxSubsPerBreak: null,
     defaultPositionMax: null,
     defaultPeriodDuration: 720,
+    endOfPeriodSound: true,
+    endOfPeriodVibrate: true,
   };
   if (!raw) return defaults;
   try {
@@ -412,6 +414,18 @@ function openSettings() {
             <button class="tri-opt${(settings.defaultClockDirection || 'down') === 'down' ? ' active' : ''}" onclick="setDefaultClockDirection('down')">↓ Down</button>
             <button class="tri-opt${settings.defaultClockDirection === 'up' ? ' active' : ''}" onclick="setDefaultClockDirection('up')">↑ Up</button>
           </div>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Period-end sound</span>
+          <div class="toggle${settings.endOfPeriodSound ? ' on' : ''}" id="settingsEndSoundToggle" onclick="toggleEndOfPeriodSound()" role="switch" aria-checked="${settings.endOfPeriodSound}" aria-label="Period-end sound"></div>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Period-end vibrate</span>
+          <div class="toggle${settings.endOfPeriodVibrate ? ' on' : ''}" id="settingsEndVibrateToggle" onclick="toggleEndOfPeriodVibrate()" role="switch" aria-checked="${settings.endOfPeriodVibrate}" aria-label="Period-end vibrate"></div>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Test alert</span>
+          <button class="btn btn-sm btn-outline" onclick="testPeriodEndAlert()">Play</button>
         </div>
       </div>
 
@@ -682,6 +696,44 @@ function setDefaultClockDirection(dir) {
   saveSettings(settings);
   closeDynamicModal('settingsModal');
   openSettings();
+}
+
+function toggleEndOfPeriodSound() {
+  const settings = loadSettings();
+  settings.endOfPeriodSound = !settings.endOfPeriodSound;
+  saveSettings(settings);
+  const toggle = document.getElementById('settingsEndSoundToggle');
+  if (toggle) {
+    toggle.classList.toggle('on', settings.endOfPeriodSound);
+    toggle.setAttribute('aria-checked', String(settings.endOfPeriodSound));
+  }
+  if (settings.endOfPeriodSound && typeof playPeriodEndAlert === 'function') {
+    playPeriodEndAlert('sound');
+  }
+}
+
+function toggleEndOfPeriodVibrate() {
+  const settings = loadSettings();
+  settings.endOfPeriodVibrate = !settings.endOfPeriodVibrate;
+  saveSettings(settings);
+  const toggle = document.getElementById('settingsEndVibrateToggle');
+  if (toggle) {
+    toggle.classList.toggle('on', settings.endOfPeriodVibrate);
+    toggle.setAttribute('aria-checked', String(settings.endOfPeriodVibrate));
+  }
+  if (settings.endOfPeriodVibrate && typeof playPeriodEndAlert === 'function') {
+    playPeriodEndAlert('vibrate');
+  }
+}
+
+function testPeriodEndAlert() {
+  if (typeof playPeriodEndAlert !== 'function') return;
+  const s = loadSettings();
+  if (!s.endOfPeriodSound && !s.endOfPeriodVibrate) {
+    showToast('Both sound and vibrate are off', 'info');
+    return;
+  }
+  playPeriodEndAlert();
 }
 
 function resetGameDayDefaults() {

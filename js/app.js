@@ -39,6 +39,7 @@ let clockStartTime = null;       // Date.now() when clock was last started
 let clockElapsed = 0;            // accumulated seconds before current start
 let clockInterval = null;        // setInterval ID for display updates
 let clockPeriodIdx = 0;          // which period the clock is tracking
+let clockAlertFired = false;     // edge-detect: period-end alert fires once per period
 
 // Field tab state (shared with field.js)
 let fieldPeriodIdx = 0;

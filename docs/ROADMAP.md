@@ -125,6 +125,7 @@
 - [x] Post-mutation validation: `validateAssignments` catches duplicate last-occupants
 - [x] Player time popup: all-period detail view with position-colored bars, time markers, reset buttons (per-period and full-game)
 - [x] Game clock: play/pause, reset, count up/down, auto-fill sub time in Fine mode
+- [x] Period-end alert: two-tone sound + vibrate at end of period, repeats every 3s until paused/reset/advanced. Independent sound/vibrate toggles in Settings (any combination supported).
 - [x] Position-colored timeline bars with gap spacers and tick marks at transitions
 - [x] Bench bars below player chips (separated for touch targets)
 - [x] Duration input: dual-field MM:SS with ▲/▼ steppers

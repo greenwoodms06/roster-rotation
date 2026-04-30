@@ -895,6 +895,10 @@ Uses a curated 12-color palette optimized for dark backgrounds: green, blue, red
 
 The clock and sub timing popup support both elapsed (count up, 00:00 → 12:00) and remaining (count down, 12:00 → 00:00) display modes. The setting is stored per-game as `timeDisplay` and defaults from `settings.defaultClockDirection`. All time-related UI (clock bar, fraction labels, exact stepper, player time popup) respects this setting via `fractionToDisplay()`.
 
+## Period-End Alert (repeat-until-paused)
+
+When the clock crosses its period duration while running, `playPeriodEndAlert()` fires a two-tone Web Audio beep and a short `navigator.vibrate` pulse, then schedules itself every `ALERT_REPEAT_MS` (3000ms) until cancelled. Cancellation paths: `clockStop` (pause), `clockReset`, `clockAdvancePeriod` (which calls reset), or elapsed dropping back below pd in `updateClockDisplay` (period extended). A single `clockAlertFired` flag prevents the same period from re-arming the repeat after it's been acknowledged via pause — resuming the clock in overtime does not re-fire. This was chosen over a one-shot chirp (easy to miss on a noisy sideline) and over a fixed 3-repeat burst (the failure mode of "I missed all three" is the same as a single chirp). The Settings test button is one-shot only — it doesn't start a repeat. Sound and vibrate are independent toggles, so any of the four combinations is supported. Vibrate requires `android.permission.VIBRATE` in `AndroidManifest.xml` for the Capacitor WebView to receive the call (the PWA path uses the browser's own permission handling). iOS PWA has no vibrate API and silently no-ops.
+
 ## Required Field Validation
 
 Player name, team name, and season name inputs use a "red pulse" validation pattern: a `.field-required` CSS class adds a red asterisk to the label, and `pulseInvalid()` applies a red border + 300ms shake animation when submitting empty. This is lighter than inline validation (which would require per-keystroke checking) while still giving clear tactile feedback on mobile.
