@@ -27,10 +27,20 @@ function pulseInvalid(el) {
   setTimeout(() => el.classList.remove("field-invalid"), 600);
 }
 
+/**
+ * HTML-escape a string for safe interpolation into innerHTML text bodies
+ * AND into double-quoted HTML attribute values. Encodes the five standard
+ * characters (&, <, >, ", '). For values embedded inside an onclick= JS
+ * string literal, use esc(JSON.stringify(value)) — JSON.stringify emits a
+ * valid JS string and esc() then makes it attribute-safe.
+ */
 function esc(str) {
-  const d = document.createElement('div');
-  d.textContent = str;
-  return d.innerHTML;
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function showToast(msg, type = '') {

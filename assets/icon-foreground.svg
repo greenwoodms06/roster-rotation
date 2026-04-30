@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(182, 182) scale(27.5)"
+     fill="none"
+     stroke="#00e676"
+     stroke-width="1.6"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <path d="M17 1l4 4-4 4" />
+    <path d="M3 11V9a4 4 0 014-4h14" />
+    <path d="M7 23l-4-4 4-4" />
+    <path d="M21 13v2a4 4 0 01-4 4H3" />
+  </g>
+</svg>

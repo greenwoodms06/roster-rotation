@@ -127,12 +127,20 @@ export function createContext(opts = {}) {
     console,
     document: domStub,
     navigator: { share: null, clipboard: { writeText: async () => {} }, serviceWorker: { register: () => Promise.resolve({ addEventListener: () => {}, waiting: null }), addEventListener: () => {} } },
-    window: { addEventListener: () => {}, location: { reload: () => {} }, _waitingSW: null },
+    window: {
+      addEventListener: () => {},
+      location: { reload: () => {} },
+      _waitingSW: null,
+      matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }),
+      visualViewport: null,
+    },
     self: { addEventListener: () => {}, skipWaiting: () => {}, clients: { claim: () => {} } },
     caches: { open: async () => ({ addAll: async () => {} }), keys: async () => [], delete: async () => {} },
     fetch: async () => ({}),
     setTimeout: (fn) => fn(),
     clearTimeout: () => {},
+    setInterval: () => 0,
+    clearInterval: () => {},
     URL: { createObjectURL: () => 'blob:test', revokeObjectURL: () => {} },
     alert: () => {},
     confirm: () => true,
@@ -146,6 +154,7 @@ export function createContext(opts = {}) {
   // Load files in order
   const files = ['js/formations.js', 'js/credit.js', 'js/storage_adapter.js', 'js/storage.js', 'js/engine.js'];
   if (opts.withApp) {
+    files.push('js/platform.js');
     files.push('js/utils.js');
     files.push('js/fairness.js');
     files.push('js/clock.js');

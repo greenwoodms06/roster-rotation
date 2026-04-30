@@ -13,15 +13,47 @@ function openRestoreModal() {
 }
 
 async function shareOrDownload(blob, filename, toastMsg) {
-  // Only attempt native share on mobile. Desktop always downloads directly —
-  // navigator.userAgentData.mobile is the only reliable desktop/mobile signal.
+  // .txt extension has broader share-sheet compatibility on Android (some
+  // share targets reject .json), so rewrite for the share path.
+  const shareFilename = filename.replace(/\.json$/, '.txt');
+
+  // Native (Capacitor): the WebView's navigator.share is unreliable on Android,
+  // so go through the Share + Filesystem plugins. Write to the app's cache dir,
+  // hand the URI to the OS chooser. downloadBlob isn't useful on native — the
+  // WebView can't resolve blob: URLs to a Downloads folder — so on failure we
+  // surface the error rather than fall through.
+  if (Platform.isNative() && window.Capacitor?.Plugins?.Share && window.Capacitor?.Plugins?.Filesystem) {
+    try {
+      const { Filesystem, Share } = window.Capacitor.Plugins;
+      const text = await blob.text();
+      const writeResult = await Filesystem.writeFile({
+        path: shareFilename,
+        data: text,
+        directory: 'CACHE',
+        encoding: 'utf8',
+      });
+      await Share.share({
+        title: shareFilename,
+        url: writeResult.uri,
+        dialogTitle: 'Share',
+      });
+      if (toastMsg) showToast(toastMsg, 'success');
+      return true;
+    } catch (e) {
+      const msg = String(e?.message || e || '').toLowerCase();
+      if (msg.includes('cancel') || msg.includes('abort')) return false;
+      console.error('Native share failed:', e);
+      showToast('Share failed: ' + (e?.message || 'unknown error'), 'error');
+      return false;
+    }
+  }
+
+  // Web: use Web Share API on mobile, fall through to download otherwise.
   const isMobile = navigator.userAgentData
     ? navigator.userAgentData.mobile
     : /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   if (isMobile) {
-    // .txt extension has broader share-sheet compatibility on Android.
-    const shareFilename = filename.replace(/\.json$/, '.txt');
     const file = new File([blob], shareFilename, { type: 'text/plain' });
     const canShare = navigator.canShare && navigator.canShare({ files: [file] });
 

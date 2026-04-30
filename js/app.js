@@ -39,6 +39,7 @@ let clockStartTime = null;       // Date.now() when clock was last started
 let clockElapsed = 0;            // accumulated seconds before current start
 let clockInterval = null;        // setInterval ID for display updates
 let clockPeriodIdx = 0;          // which period the clock is tracking
+let clockAlertFired = false;     // edge-detect: period-end alert fires once per period
 
 // Field tab state (shared with field.js)
 let fieldPeriodIdx = 0;
@@ -50,9 +51,10 @@ let fieldPlays = [];          // saved plays for current team/season
 let fieldActivePlayId = null; // currently loaded play ID, or null
 let fieldPlayFilter = '';     // text filter for play dropdown
 let fieldDrawMode = false;    // route drawing mode toggle
-let fieldRoutes = [];         // current routes: [{ points: [[x,y], ...] }, ...]
+let fieldRoutes = [];         // current routes: [{ points: [[x,y], ...], style: 'solid'|'dashed' }, ...]
 let fieldDrawState = null;    // active draw: { points, pointerId } or null
 let fieldSelectedRoute = null; // selected route index for deletion, or null
+let fieldRouteStyle = 'solid'; // style applied to the next route drawn ('solid' | 'dashed')
 let fieldDefenseOn = false;   // defense overlay toggle
 let fieldDefenseMarkers = []; // defense positions: [{x, y}, ...]
 let fieldZoneMode = false;    // zone drawing mode toggle
@@ -413,6 +415,13 @@ function init() {
       markDataDirty();
       return result;
     };
+  }
+
+  // On native (Capacitor), remove store-policy-sensitive UI before render:
+  // donate links violate Play's payments policy; popup Print doesn't work
+  // in a WebView. Both stay for the PWA.
+  if (Platform.isNative()) {
+    document.getElementById('donateWrap')?.remove();
   }
 
   // Apply theme before anything renders
@@ -1238,9 +1247,9 @@ function renderRoster() {
     const p = roster.players[pid];
     const weights = p.positionWeights || {};
     const badges = Object.entries(weights).map(([pos, w]) => {
-      if (w === 0) return `<span class="badge exclude">${pos}</span>`;
-      if (w === 2) return `<span class="badge prefer">${pos}</span>`;
-      if (w === 3) return `<span class="badge strong">${pos}</span>`;
+      if (w === 0) return `<span class="badge exclude">${esc(pos)}</span>`;
+      if (w === 2) return `<span class="badge prefer">${esc(pos)}</span>`;
+      if (w === 3) return `<span class="badge strong">${esc(pos)}</span>`;
       return '';
     }).filter(Boolean).join('');
 
@@ -1335,8 +1344,8 @@ function renderWeightGrid() {
     const label = WEIGHT_LABELS[w] || `x${w}`;
     const cls = WEIGHT_CLASSES[w] || '';
     return `
-      <div class="weight-item" onclick="cycleWeight('${pos}')">
-        <div class="pos-label">${pos}</div>
+      <div class="weight-item" onclick="cycleWeight(${esc(JSON.stringify(pos))})">
+        <div class="pos-label">${esc(pos)}</div>
         <div class="badge ${cls}" style="display:inline-block;font-size:11px">${label}</div>
       </div>
     `;
@@ -1543,8 +1552,8 @@ function renderAvailableItems() {
           const disabled = w === 0 || (lockedPositions.has(pos) && gameLocks[a.pid] !== pos);
           const active = gameLocks[a.pid] === pos;
           const cls = active ? 'lock-chip active' : (disabled ? 'lock-chip disabled' : 'lock-chip');
-          const onclick = disabled ? '' : `onclick="event.stopPropagation();setLock('${a.pid}','${pos}')"`;
-          return `<button class="${cls}" ${onclick}>${pos}</button>`;
+          const onclick = disabled ? '' : `onclick="event.stopPropagation();setLock(${esc(JSON.stringify(a.pid))},${esc(JSON.stringify(pos))})"`;
+          return `<button class="${cls}" ${onclick}>${esc(pos)}</button>`;
         }).join('');
         picker = `<div class="lock-picker">${chips}</div>`;
       }
@@ -1837,10 +1846,10 @@ function renderConstraintControls() {
     const pmMinusDisabled = curMax === null;
     const pmPlusDisabled = curMax !== null && curMax >= numPeriods - 1;
     html += '<div class="constraint-row">';
-    html += `<span class="constraint-pos-label">${pos}</span>`;
+    html += `<span class="constraint-pos-label">${esc(pos)}</span>`;
     html += renderStepperHtml({
-      minusFn: `bumpPositionMax('${pos}',-1)`,
-      plusFn: `bumpPositionMax('${pos}',1)`,
+      minusFn: `bumpPositionMax(${esc(JSON.stringify(pos))},-1)`,
+      plusFn: `bumpPositionMax(${esc(JSON.stringify(pos))},1)`,
       label: pmLabel,
       minusDisabled: pmMinusDisabled,
       plusDisabled: pmPlusDisabled,
@@ -1948,7 +1957,6 @@ function generatePlan() {
       title: 'Not Enough Players',
       message: `Need at least ${roster.positions.length} available players.`,
       cancelLabel: null,
-      onConfirm: () => {}
     });
     return;
   }
@@ -2065,7 +2073,6 @@ function doGenerate(gameId) {
       title: 'Generation Error',
       message: e.message,
       cancelLabel: null,
-      onConfirm: () => {}
     });
   }
 }
@@ -2387,7 +2394,7 @@ function renderLineup() {
           }
         }
 
-        html += `<div class="lineup-row${isSel}${isHi}"><span class="pos-color-bar" style="background:${posClr}"></span><div class="lineup-swap-target" onclick="handleSwapTap(${pi},'${pid}','${pos}')"><span class="lineup-pos${isGK}">${pos}</span><span class="lineup-name">${nameHtml}</span></div>${timelineHtml}<div class="goal-counter" onclick="event.stopPropagation()"><button class="goal-btn" onclick="changePlayerGoals(${pi},'${pid}',-1)" aria-label="Remove goal">&minus;</button><span class="goal-count${goals > 0 ? ' has-goals' : ''}">${goals}</span><button class="goal-btn" onclick="changePlayerGoals(${pi},'${pid}',1)" aria-label="Add goal">+</button></div></div>`;
+        html += `<div class="lineup-row${isSel}${isHi}"><span class="pos-color-bar" style="background:${posClr}"></span><div class="lineup-swap-target" onclick="handleSwapTap(${pi},${esc(JSON.stringify(pid))},${esc(JSON.stringify(pos))})"><span class="lineup-pos${isGK}">${esc(pos)}</span><span class="lineup-name">${nameHtml}</span></div>${timelineHtml}<div class="goal-counter" onclick="event.stopPropagation()"><button class="goal-btn" onclick="changePlayerGoals(${pi},${esc(JSON.stringify(pid))},-1)" aria-label="Remove goal">&minus;</button><span class="goal-count${goals > 0 ? ' has-goals' : ''}">${goals}</span><button class="goal-btn" onclick="changePlayerGoals(${pi},${esc(JSON.stringify(pid))},1)" aria-label="Add goal">+</button></div></div>`;
       }
       html += '</div>';
       const visualBench = deriveVisualBench(plan, pi);
@@ -2485,7 +2492,6 @@ function addPeriodToPlan() {
         title: 'Cannot Add Period',
         message: e.message,
         cancelLabel: null,
-        onConfirm: () => {}
       });
     }
   };
@@ -2870,7 +2876,7 @@ function doRemovePeriod(periodIdx, mode /* 'all' | 'after' | 'none' */) {
       if (plan.exhibition) rebalanced.exhibition = true;
       currentPlan = rebalanced;
     } catch (e) {
-      showModal({ title: 'Rebalance Error', message: e.message, cancelLabel: null, onConfirm: () => {} });
+      showModal({ title: 'Rebalance Error', message: e.message, cancelLabel: null });
       return;
     }
   }
@@ -2961,7 +2967,6 @@ function doRebalance(fromPeriodIdx, newPids = [], removedPids = []) {
       title: 'Rebalance Error',
       message: e.message,
       cancelLabel: null,
-      onConfirm: () => {}
     });
   }
 }
@@ -3818,13 +3823,29 @@ function printLineup(planArg) {
 <script>window.onload = function() { window.print(); }</script>
 </body></html>`;
 
-  const win = window.open('', '_blank');
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-  } else {
-    showToast('Pop-up blocked — allow pop-ups for this site', 'error');
+  // Native (Capacitor): hand the HTML to the Android PrintBridge interface in
+  // MainActivity.java, which renders it in an off-screen WebView and calls
+  // PrintManager. window.print() is a silent no-op in the embedded WebView.
+  if (Platform.isNative() && window.AndroidPrint && typeof window.AndroidPrint.print === 'function') {
+    window.AndroidPrint.print(html);
+    return;
   }
+
+  // Web: hidden iframe instead of window.open (which returns null in the
+  // WebView and may be popup-blocked on the web). The HTML's inline
+  // <script>window.print()</script> fires on iframe load; the system print
+  // dialog grabs the document at that moment, so removing the iframe after
+  // afterprint (or a long timeout) is safe.
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  const cleanup = () => { try { iframe.remove(); } catch (_) {} };
+  iframe.addEventListener('load', () => {
+    try { iframe.contentWindow.addEventListener('afterprint', cleanup, { once: true }); } catch (_) {}
+  }, { once: true });
+  setTimeout(cleanup, 60000);
+  document.body.appendChild(iframe);
+  iframe.srcdoc = html;
 }
 
 
@@ -3980,7 +4001,10 @@ document.addEventListener('keydown', (e) => {
 // -- PWA Registration -----------------------------------------------
 // Skip on native Capacitor: iOS WKWebView has no SW support, and Android
 // WebView registration fails under capacitor://. Native builds ship bundled.
-if ('serviceWorker' in navigator && !window.Capacitor?.isNativePlatform?.()) {
+// Skip under automation (Playwright etc.): the first-install clients.claim()
+// fires controllerchange → window.location.reload(), which races with the
+// test runner's page.evaluate and destroys the execution context.
+if ('serviceWorker' in navigator && Platform.isWeb() && !navigator.webdriver) {
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
     // SW already waiting from a previous visit
     if (reg.waiting) {
@@ -4005,7 +4029,7 @@ if ('serviceWorker' in navigator && !window.Capacitor?.isNativePlatform?.()) {
 
     // Periodic check every 60 minutes
     setInterval(() => reg.update(), 60 * 60 * 1000);
-  }).catch(() => {});
+  }).catch(err => console.warn('[SW] registration failed:', err));
 
   // Reload when new SW takes over
   let refreshing = false;
@@ -4054,6 +4078,8 @@ function applyUpdate() {
 let _deferredInstallPrompt = null;
 
 window.addEventListener('beforeinstallprompt', (e) => {
+  // Native Capacitor builds install via the store, not this web flow.
+  if (Platform.isNative()) return;
   e.preventDefault();
   _deferredInstallPrompt = e;
 
@@ -4122,7 +4148,7 @@ async function acceptInstallPrompt() {
 //   Android Chrome: visualViewport.height shrinks with overlays-content → exact sizing.
 //   iOS Safari: visualViewport does NOT shrink → focusin heuristic (~45% of screen).
 
-const _hasTouchKb = window.matchMedia('(pointer: coarse)').matches;
+const _hasTouchKb = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
 
 let _kbActiveModal = null;   // .modal element currently adjusted for keyboard
 

@@ -1,7 +1,8 @@
-const CACHE_NAME = 'rotation-v3.39';
+const CACHE_NAME = 'rotation-v3.46';
 const ASSETS = [
   './index.html',
   './css/styles.css',
+  './js/platform.js',
   './js/formations.js',
   './js/credit.js',
   './js/storage_adapter.js',
@@ -14,11 +15,14 @@ const ASSETS = [
   './js/backup.js',
   './js/season_view.js',
   './js/modals.js',
+  './js/play_templates.js',
   './js/field.js',
   './js/app.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './fonts/dm-sans-latin.woff2',
+  './fonts/jetbrains-mono-latin.woff2',
 ];
 
 self.addEventListener('install', (e) => {
