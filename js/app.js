@@ -4167,8 +4167,6 @@ if (_hasTouchKb) {
     const overlay = el.closest('.modal-overlay');
     if (!overlay || overlay.classList.contains('hidden')) return;
     if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') return;
-    // Numeric keypads are small — don't resize the modal for them
-    if (el.type === 'number' || el.inputMode === 'numeric') return;
 
     const modal = overlay.querySelector('.modal');
     if (!modal) return;

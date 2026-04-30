@@ -722,7 +722,12 @@ function toggleEndOfPeriodVibrate() {
     toggle.setAttribute('aria-checked', String(settings.endOfPeriodVibrate));
   }
   if (settings.endOfPeriodVibrate && typeof playPeriodEndAlert === 'function') {
-    playPeriodEndAlert('vibrate');
+    const ok = playPeriodEndAlert('vibrate');
+    if (ok === null) {
+      showToast('Vibration not supported on this device', 'info');
+    } else if (ok === false) {
+      showToast('Vibration blocked — check silent/Do Not Disturb mode', 'info');
+    }
   }
 }
 

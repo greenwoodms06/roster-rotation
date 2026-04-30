@@ -132,7 +132,9 @@ function playPeriodEndAlert(mode) {
     wantVibrate = s.endOfPeriodVibrate !== false;
   }
   if (wantSound) _playAlertSound();
-  if (wantVibrate) _playAlertVibrate();
+  // Returns the vibrate result (true/false/null) so callers can surface failure;
+  // undefined when vibrate wasn't requested.
+  if (wantVibrate) return _playAlertVibrate();
 }
 
 function _playAlertSound() {
@@ -166,11 +168,14 @@ function _playAlertSound() {
 }
 
 function _playAlertVibrate() {
+  // Returns: true if the call started a vibration, false if the device/browser
+  // refused (silent mode, DND, OEM restriction), null if the API is missing.
+  // Callers triggered by a user gesture (e.g. settings toggle) can surface this
+  // to explain why vibration is silent.
   try {
-    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-      navigator.vibrate([220, 110, 220]);
-    }
-  } catch (e) { /* no-op */ }
+    if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return null;
+    return navigator.vibrate([300, 120, 300]) === true;
+  } catch (e) { return false; }
 }
 
 function _scheduleAlertRepeat() {
