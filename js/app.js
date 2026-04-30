@@ -3557,14 +3557,14 @@ function openPeriodDurationPrompt() {
     <div class="dur-input-row">
       <div class="dur-field">
         <button class="dur-step" onclick="stepDurField('durMin',1)">▲</button>
-        <input type="number" id="durMin" value="${m}" min="0" max="99" inputmode="numeric" class="dur-num">
+        <input type="text" id="durMin" value="${m}" maxlength="2" inputmode="numeric" autocomplete="off" class="dur-num">
         <button class="dur-step" onclick="stepDurField('durMin',-1)">▼</button>
         <span class="dur-label">min</span>
       </div>
       <span class="dur-colon">:</span>
       <div class="dur-field">
         <button class="dur-step" onclick="stepDurField('durSec',1)">▲</button>
-        <input type="number" id="durSec" value="${String(s).padStart(2,'0')}" min="0" max="59" inputmode="numeric" class="dur-num">
+        <input type="text" id="durSec" value="${String(s).padStart(2,'0')}" maxlength="2" inputmode="numeric" autocomplete="off" class="dur-num">
         <button class="dur-step" onclick="stepDurField('durSec',-1)">▼</button>
         <span class="dur-label">sec</span>
       </div>
@@ -3576,13 +3576,17 @@ function openPeriodDurationPrompt() {
   </div>`;
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCustomModal(); });
   document.body.appendChild(overlay);
+  // All-numeric modal: focusin's text-only gate won't lift this above the
+  // keyboard, so prime it manually like the player modal does via its name field.
+  _kbPrimeModal(overlay.querySelector('.modal'));
 }
 
 function stepDurField(id, dir) {
   const el = document.getElementById(id);
   if (!el) return;
+  const max = id === 'durSec' ? 59 : 99;
   let val = parseInt(el.value) || 0;
-  val = Math.max(parseInt(el.min), Math.min(val + dir, parseInt(el.max)));
+  val = Math.max(0, Math.min(val + dir, max));
   el.value = id === 'durSec' ? String(val).padStart(2, '0') : val;
 }
 
@@ -4160,6 +4164,19 @@ function _kbResetAllModals() {
   _kbActiveModal = null;
 }
 
+// Lift+shrink a modal so it sits above the soft keyboard. Called from focusin
+// for text inputs, and called manually by all-numeric modals (e.g. Period
+// Duration) where focusin's text-only gate wouldn't otherwise engage. No-op on
+// non-touch devices. visualViewport refines this with exact dims on Android.
+function _kbPrimeModal(modal, focusEl) {
+  if (!_hasTouchKb || !modal) return;
+  _kbActiveModal = modal;
+  const kbGuess = window.innerHeight * 0.45;
+  modal.style.maxHeight = (window.innerHeight - kbGuess) + 'px';
+  modal.style.marginBottom = kbGuess + 'px';
+  if (focusEl) setTimeout(() => focusEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 300);
+}
+
 if (_hasTouchKb) {
   document.addEventListener('focusin', (e) => {
     const el = e.target;
@@ -4167,20 +4184,10 @@ if (_hasTouchKb) {
     const overlay = el.closest('.modal-overlay');
     if (!overlay || overlay.classList.contains('hidden')) return;
     if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') return;
+    // Numeric keypads are small — don't resize the modal for them
+    if (el.type === 'number' || el.inputMode === 'numeric') return;
 
-    const modal = overlay.querySelector('.modal');
-    if (!modal) return;
-    _kbActiveModal = modal;
-
-    // Heuristic: assume keyboard is ~45% of screen. Set modal max-height
-    // to fit above it and margin-bottom to push it above the keyboard.
-    // On Android this is quickly overridden by visualViewport with exact dims.
-    const kbGuess = window.innerHeight * 0.45;
-    const safeHeight = window.innerHeight - kbGuess;
-    modal.style.maxHeight = safeHeight + 'px';
-    modal.style.marginBottom = kbGuess + 'px';
-
-    setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 300);
+    _kbPrimeModal(overlay.querySelector('.modal'), el);
   });
 
   document.addEventListener('focusout', (e) => {

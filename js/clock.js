@@ -108,33 +108,20 @@ function updateClockDisplay() {
   }
 }
 
-// ── Period-end alert (sound / vibrate) ──
+// ── Period-end alert (sound) ──
 //
 // Triggered the first tick the clock crosses its period duration while running.
 // Repeats every ALERT_REPEAT_MS until the user pauses, resets, advances the
 // period, or extends it (elapsed drops below pd).
-// Both signals degrade silently on platforms that don't support them
-// (iOS PWA has no vibrate; tests have no AudioContext).
+// Degrades silently where AudioContext is unavailable (e.g. tests).
 
 let _alertAudioCtx = null;
 let _alertRepeatTimer = null;
 const ALERT_REPEAT_MS = 3000;
 
-function playPeriodEndAlert(mode) {
-  // mode: undefined → use settings; 'sound' | 'vibrate' | 'both' → forced (test button)
-  let wantSound, wantVibrate;
-  if (mode === 'sound')        { wantSound = true;  wantVibrate = false; }
-  else if (mode === 'vibrate') { wantSound = false; wantVibrate = true; }
-  else if (mode === 'both')    { wantSound = true;  wantVibrate = true; }
-  else {
-    const s = (typeof loadSettings === 'function') ? loadSettings() : {};
-    wantSound = s.endOfPeriodSound !== false;
-    wantVibrate = s.endOfPeriodVibrate !== false;
-  }
-  if (wantSound) _playAlertSound();
-  // Returns the vibrate result (true/false/null) so callers can surface failure;
-  // undefined when vibrate wasn't requested.
-  if (wantVibrate) return _playAlertVibrate();
+function playPeriodEndAlert() {
+  const s = (typeof loadSettings === 'function') ? loadSettings() : {};
+  if (s.endOfPeriodSound !== false) _playAlertSound();
 }
 
 function _playAlertSound() {
@@ -165,17 +152,6 @@ function _playAlertSound() {
     beep(880, 0);
     beep(1320, 0.22);
   } catch (e) { /* no-op */ }
-}
-
-function _playAlertVibrate() {
-  // Returns: true if the call started a vibration, false if the device/browser
-  // refused (silent mode, DND, OEM restriction), null if the API is missing.
-  // Callers triggered by a user gesture (e.g. settings toggle) can surface this
-  // to explain why vibration is silent.
-  try {
-    if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return null;
-    return navigator.vibrate([300, 120, 300]) === true;
-  } catch (e) { return false; }
 }
 
 function _scheduleAlertRepeat() {

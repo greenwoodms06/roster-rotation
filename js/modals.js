@@ -244,7 +244,6 @@ function loadSettings() {
     defaultPositionMax: null,
     defaultPeriodDuration: 720,
     endOfPeriodSound: true,
-    endOfPeriodVibrate: true,
   };
   if (!raw) return defaults;
   try {
@@ -347,9 +346,9 @@ function openSettings() {
         <div class="settings-row">
           <span class="settings-label">Segment length</span>
           <div class="dur-compact">
-            <input type="number" id="settingsDurMin" value="${Math.floor((settings.defaultPeriodDuration || 720) / 60)}" min="0" max="99" inputmode="numeric" class="dur-num-sm" onchange="saveSettingsDuration()">
+            <input type="text" id="settingsDurMin" value="${Math.floor((settings.defaultPeriodDuration || 720) / 60)}" maxlength="2" inputmode="numeric" autocomplete="off" class="dur-num-sm" onchange="saveSettingsDuration()">
             <span>:</span>
-            <input type="number" id="settingsDurSec" value="${String((settings.defaultPeriodDuration || 720) % 60).padStart(2,'0')}" min="0" max="59" inputmode="numeric" class="dur-num-sm" onchange="saveSettingsDuration()">
+            <input type="text" id="settingsDurSec" value="${String((settings.defaultPeriodDuration || 720) % 60).padStart(2,'0')}" maxlength="2" inputmode="numeric" autocomplete="off" class="dur-num-sm" onchange="saveSettingsDuration()">
           </div>
         </div>
         <div class="settings-row">
@@ -418,10 +417,6 @@ function openSettings() {
         <div class="settings-row">
           <span class="settings-label">Period-end sound</span>
           <div class="toggle${settings.endOfPeriodSound ? ' on' : ''}" id="settingsEndSoundToggle" onclick="toggleEndOfPeriodSound()" role="switch" aria-checked="${settings.endOfPeriodSound}" aria-label="Period-end sound"></div>
-        </div>
-        <div class="settings-row">
-          <span class="settings-label">Period-end vibrate</span>
-          <div class="toggle${settings.endOfPeriodVibrate ? ' on' : ''}" id="settingsEndVibrateToggle" onclick="toggleEndOfPeriodVibrate()" role="switch" aria-checked="${settings.endOfPeriodVibrate}" aria-label="Period-end vibrate"></div>
         </div>
         <div class="settings-row">
           <span class="settings-label">Test alert</span>
@@ -708,34 +703,15 @@ function toggleEndOfPeriodSound() {
     toggle.setAttribute('aria-checked', String(settings.endOfPeriodSound));
   }
   if (settings.endOfPeriodSound && typeof playPeriodEndAlert === 'function') {
-    playPeriodEndAlert('sound');
-  }
-}
-
-function toggleEndOfPeriodVibrate() {
-  const settings = loadSettings();
-  settings.endOfPeriodVibrate = !settings.endOfPeriodVibrate;
-  saveSettings(settings);
-  const toggle = document.getElementById('settingsEndVibrateToggle');
-  if (toggle) {
-    toggle.classList.toggle('on', settings.endOfPeriodVibrate);
-    toggle.setAttribute('aria-checked', String(settings.endOfPeriodVibrate));
-  }
-  if (settings.endOfPeriodVibrate && typeof playPeriodEndAlert === 'function') {
-    const ok = playPeriodEndAlert('vibrate');
-    if (ok === null) {
-      showToast('Vibration not supported on this device', 'info');
-    } else if (ok === false) {
-      showToast('Vibration blocked — check silent/Do Not Disturb mode', 'info');
-    }
+    playPeriodEndAlert();
   }
 }
 
 function testPeriodEndAlert() {
   if (typeof playPeriodEndAlert !== 'function') return;
   const s = loadSettings();
-  if (!s.endOfPeriodSound && !s.endOfPeriodVibrate) {
-    showToast('Both sound and vibrate are off', 'info');
+  if (!s.endOfPeriodSound) {
+    showToast('Period-end sound is off', 'info');
     return;
   }
   playPeriodEndAlert();
