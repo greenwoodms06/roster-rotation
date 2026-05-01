@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rotation-v3.48';
+const CACHE_NAME = 'rotation-v3.49';
 const ASSETS = [
   './index.html',
   './css/styles.css',

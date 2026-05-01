@@ -4155,6 +4155,7 @@ async function acceptInstallPrompt() {
 const _hasTouchKb = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
 
 let _kbActiveModal = null;   // .modal element currently adjusted for keyboard
+let _kbWasOpen = false;      // true once visualViewport has reported a real keyboard
 
 function _kbResetAllModals() {
   document.querySelectorAll('.modal-overlay .modal').forEach(m => {
@@ -4162,6 +4163,7 @@ function _kbResetAllModals() {
     m.style.marginBottom = '';
   });
   _kbActiveModal = null;
+  _kbWasOpen = false;
 }
 
 // Lift+shrink a modal so it sits above the soft keyboard. Called from focusin
@@ -4212,14 +4214,17 @@ if (_hasTouchKb) {
       const vv = window.visualViewport;
       const kbHeight = window.innerHeight - vv.height;
       if (kbHeight > 100) {
+        _kbWasOpen = true;
         _kbActiveModal.style.maxHeight = (vv.height - 20) + 'px';
         _kbActiveModal.style.marginBottom = kbHeight + 'px';
         const focused = document.activeElement;
         if (focused && focused.closest('.modal')) {
           focused.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
-      } else if (kbHeight < 50) {
-        // Keyboard closed (input may still have focus — Android dismiss button)
+      } else if (kbHeight < 50 && _kbWasOpen) {
+        // Keyboard closed (input may still have focus — Android dismiss button).
+        // Gate on _kbWasOpen so a spurious scroll fired by the prime-time layout
+        // shift (before the keyboard ever opens) doesn't undo the lift.
         _kbResetAllModals();
       }
     };
