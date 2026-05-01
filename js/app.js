@@ -3576,9 +3576,10 @@ function openPeriodDurationPrompt() {
   </div>`;
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCustomModal(); });
   document.body.appendChild(overlay);
-  // All-numeric modal: focusin's text-only gate won't lift this above the
-  // keyboard, so prime it manually like the player modal does via its name field.
-  _kbPrimeModal(overlay.querySelector('.modal'));
+  // Match the player modal pattern: auto-focus an input after the modal is in
+  // the DOM. The focus fires focusin, which lifts the modal in sync with the
+  // keyboard opening — no gap during which a stray reset can drop it back.
+  setTimeout(() => document.getElementById('durMin')?.focus(), 100);
 }
 
 function stepDurField(id, dir) {
@@ -4167,9 +4168,8 @@ function _kbResetAllModals() {
 }
 
 // Lift+shrink a modal so it sits above the soft keyboard. Called from focusin
-// for text inputs, and called manually by all-numeric modals (e.g. Period
-// Duration) where focusin's text-only gate wouldn't otherwise engage. No-op on
-// non-touch devices. visualViewport refines this with exact dims on Android.
+// when an input inside a modal-overlay gains focus. No-op on non-touch devices.
+// visualViewport refines this with exact dims on Android.
 function _kbPrimeModal(modal, focusEl) {
   if (!_hasTouchKb || !modal) return;
   _kbActiveModal = modal;
@@ -4186,8 +4186,6 @@ if (_hasTouchKb) {
     const overlay = el.closest('.modal-overlay');
     if (!overlay || overlay.classList.contains('hidden')) return;
     if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') return;
-    // Numeric keypads are small — don't resize the modal for them
-    if (el.type === 'number' || el.inputMode === 'numeric') return;
 
     _kbPrimeModal(overlay.querySelector('.modal'), el);
   });
