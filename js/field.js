@@ -871,6 +871,9 @@ function buildPlaysControlsHTML() {
     html += '<button class="btn-icon" onclick="resetToActivePlay()" title="Reset to saved positions">&#x21BA;</button>';
   }
 
+  // Mirror current play left/right
+  html += '<button class="btn-icon" onclick="mirrorField()" title="Mirror left/right">&#x21C4;</button>';
+
   // Actions menu button (+)
   html += '<div style="position:relative" id="playsMenuWrap">';
   html += '<button class="btn-icon" onclick="togglePlaysMenu()" title="Play actions">+</button>';
@@ -1048,6 +1051,29 @@ function loadPlay(playId) {
 function _pctToSvg(pt) {
   const W = 340, H = 480, pad = 12;
   return [pad + pt[0] / 100 * (W - 2 * pad), pad + pt[1] / 100 * (H - 2 * pad)];
+}
+
+/**
+ * Flip the current play horizontally (x' = W - x). Mirrors dot positions,
+ * routes, zones, and defense markers in place. Toolbar action — view-time
+ * transform; the user saves to persist a mirrored copy.
+ */
+function mirrorField() {
+  const W = 340; // must match _pctToSvg
+  const flipX = (pt) => [W - pt[0], pt[1]];
+  for (const pos in fieldDotPositions) {
+    fieldDotPositions[pos] = flipX(fieldDotPositions[pos]);
+  }
+  for (const route of fieldRoutes) {
+    route.points = route.points.map(flipX);
+  }
+  for (const zone of fieldZones) {
+    zone.points = zone.points.map(flipX);
+  }
+  for (const dm of fieldDefenseMarkers) {
+    dm.x = W - dm.x;
+  }
+  renderField();
 }
 
 /**
