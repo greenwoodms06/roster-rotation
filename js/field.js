@@ -1061,6 +1061,19 @@ function _pctToSvg(pt) {
 function mirrorField() {
   const W = 340; // must match _pctToSvg
   const flipX = (pt) => [W - pt[0], pt[1]];
+
+  // Dots that haven't been dragged render from the formation default and have
+  // no fieldDotPositions entry — bake those in first so they flip too.
+  const formInfo = getFieldFormations();
+  const layout = formInfo.layouts[fieldFormationIdx] || formInfo.layouts[0];
+  const coords = (layout && layout.coords) || {};
+  const positions = roster ? roster.positions : getStandalonePositions();
+  for (const pos of positions) {
+    if (!fieldDotPositions[pos] && coords[pos]) {
+      fieldDotPositions[pos] = _pctToSvg(coords[pos]);
+    }
+  }
+
   for (const pos in fieldDotPositions) {
     fieldDotPositions[pos] = flipX(fieldDotPositions[pos]);
   }
