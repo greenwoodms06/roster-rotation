@@ -18,3 +18,10 @@ keystore.properties
 .DS_Store
 .vscode/
 .idea/
+
+# Soul System runtime state (cursor, event log) — never the record itself
+.soul/handoff.md
+.soul/events.jsonl
+
+# AI working files (plans, drafts, bundles) — local only, safe to delete
+.ai/
