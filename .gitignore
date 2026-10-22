@@ -25,3 +25,4 @@ keystore.properties
 
 # AI working files (plans, drafts, bundles) — local only, safe to delete
 .ai/
+.claude/settings.local.json
